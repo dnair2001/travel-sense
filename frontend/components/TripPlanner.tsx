@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 import { FormEvent, useState } from "react";
 
+import { apiPost } from "../lib/api";
 import { Activity, DayPlan, FeedbackRating, TripRequest, TripResponse } from "../lib/types";
 import type { MapStop } from "./ItineraryMapView";
 
@@ -10,8 +11,6 @@ const ItineraryMapView = dynamic(() => import("./ItineraryMapView"), {
   ssr: false,
   loading: () => <div className="map-loading">Loading map…</div>,
 });
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
 const defaultTrip: TripRequest = {
   destination: "Tokyo",
@@ -109,19 +108,7 @@ export function TripPlanner() {
     setTrip(payload);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/itinerary`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(payload),
-      });
-
-      if (!response.ok) {
-        throw new Error(await getApiErrorMessage(response, "Failed to generate itinerary."));
-      }
-
-      const data: TripResponse = await response.json();
+      const data = await apiPost<TripResponse>("/api/itinerary", payload, "Failed to generate itinerary.");
       setResult(data);
       setActiveDay(data.itinerary[0]?.day ?? 1);
     } catch (submitError) {
@@ -139,24 +126,16 @@ export function TripPlanner() {
     setError(null);
     setIsRefining(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/itinerary/refine`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
+      const data = await apiPost<TripResponse>(
+        "/api/itinerary/refine",
+        {
           trip: { ...trip, interests: splitInterests(interestInput) },
           current_summary: result.summary,
           current_itinerary: result.itinerary,
           instruction: refinement,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(await getApiErrorMessage(response, "Failed to refine itinerary."));
-      }
-
-      const data: TripResponse = await response.json();
+        },
+        "Failed to refine itinerary.",
+      );
       setResult(data);
       setActiveDay(data.itinerary[0]?.day ?? activeDay);
     } catch (submitError) {
@@ -172,12 +151,9 @@ export function TripPlanner() {
     setError(null);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/feedback`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
+      await apiPost(
+        "/api/feedback",
+        {
           destination: trip.destination,
           day,
           period: activity.period,
@@ -185,12 +161,9 @@ export function TripPlanner() {
           rating,
           note: "",
           source_titles: activity.source_titles,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(await getApiErrorMessage(response, "Failed to save feedback."));
-      }
+        },
+        "Failed to save feedback.",
+      );
 
       setFeedbackStatus((current) => ({ ...current, [key]: "Saved" }));
     } catch (feedbackError) {
@@ -472,10 +445,14 @@ function ItineraryMap({ destination, day }: { destination: MapCity; day: DayPlan
   );
 }
 
+function activitySearchText(activity: Activity): string {
+  return normalizeText(`${activity.title} ${activity.reason} ${activity.source_titles.join(" ")}`);
+}
+
 function getStopsForDay(destination: MapCity, day: DayPlan): MapPoint[] {
   const catalog = CITY_MAPS[destination].points;
   const matched = day.activities.flatMap((activity) => {
-    const text = normalizeText(`${activity.title} ${activity.reason} ${activity.source_titles.join(" ")}`);
+    const text = activitySearchText(activity);
     return catalog.filter((point) => point.aliases.some((alias) => text.includes(alias)));
   });
   return dedupeStops(matched);
@@ -492,9 +469,7 @@ function getFallbackStops(destination: MapCity, day: DayPlan): MapPoint[] {
 function findActivityForStop(day: DayPlan, stopLabel: string): Activity | null {
   const normalizedStop = normalizeText(stopLabel);
   return (
-    day.activities.find((activity) =>
-      normalizeText(`${activity.title} ${activity.reason} ${activity.source_titles.join(" ")}`).includes(normalizedStop),
-    ) ?? null
+    day.activities.find((activity) => activitySearchText(activity).includes(normalizedStop)) ?? null
   );
 }
 
@@ -530,17 +505,4 @@ function splitInterests(value: string): string[] {
     .filter(Boolean);
 }
 
-async function getApiErrorMessage(response: Response, fallback: string): Promise<string> {
-  try {
-    const body = (await response.json()) as { detail?: string | { msg?: string }[] };
-    if (typeof body.detail === "string") {
-      return body.detail;
-    }
-    if (Array.isArray(body.detail)) {
-      return body.detail.map((item) => item.msg).filter(Boolean).join(" ") || fallback;
-    }
-  } catch {
-    return fallback;
-  }
-  return fallback;
-}
+

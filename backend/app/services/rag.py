@@ -3,10 +3,10 @@ import re
 from datetime import datetime, timezone
 from functools import cached_property
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, NamedTuple, Optional, Set, Tuple
 
-from langchain.prompts import ChatPromptTemplate
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_chroma import Chroma
 from langchain_community.document_loaders import DirectoryLoader, TextLoader
 from langchain_core.documents import Document
@@ -27,6 +27,20 @@ class UnsupportedDestinationError(ValueError):
 class GenerationError(ValueError):
     def __init__(self, message: str = "Unable to generate a valid itinerary.") -> None:
         super().__init__(message)
+
+
+class DocMeta(NamedTuple):
+    title: str
+    city: str
+    category: str
+
+
+def doc_meta(doc: Document) -> DocMeta:
+    return DocMeta(
+        title=doc.metadata.get("title", "Unknown"),
+        city=doc.metadata.get("city", "unknown"),
+        category=doc.metadata.get("category", "general"),
+    )
 
 
 class TravelRAGService:
@@ -198,6 +212,14 @@ class TravelRAGService:
         )
         return {"message": "Activity feedback saved to personal travel memory."}
 
+    def _build_llm(self) -> ChatOpenAI:
+        return ChatOpenAI(
+            api_key=self.settings.openai_api_key,
+            model=self.settings.openai_model,
+            temperature=0.4,
+            model_kwargs={"response_format": {"type": "json_object"}},
+        )
+
     def _plan_with_llm(self, trip: TripRequest, documents: List[Document]) -> TripResponse:
         context = self._serialize_context(documents)
         prompt = ChatPromptTemplate.from_messages(
@@ -220,12 +242,7 @@ class TravelRAGService:
                 ),
             ]
         )
-        chain = prompt | ChatOpenAI(
-            api_key=self.settings.openai_api_key,
-            model=self.settings.openai_model,
-            temperature=0.4,
-            model_kwargs={"response_format": {"type": "json_object"}},
-        )
+        chain = prompt | self._build_llm()
         response = chain.invoke(
             {
                 "trip_request": trip.model_dump_json(indent=2),
@@ -262,12 +279,7 @@ class TravelRAGService:
                 ),
             ]
         )
-        chain = prompt | ChatOpenAI(
-            api_key=self.settings.openai_api_key,
-            model=self.settings.openai_model,
-            temperature=0.4,
-            model_kwargs={"response_format": {"type": "json_object"}},
-        )
+        chain = prompt | self._build_llm()
         response = chain.invoke(
             {
                 "trip_request": request.trip.model_dump_json(indent=2),
@@ -347,13 +359,14 @@ class TravelRAGService:
     def _serialize_context(self, documents: List[Document]) -> str:
         blocks: List[str] = []
         for doc in documents:
+            meta = doc_meta(doc)
             blocks.append(
                 "\n".join(
                     [
-                        f"Title: {doc.metadata.get('title', 'Unknown')}",
+                        f"Title: {meta.title}",
                         f"Scope: {doc.metadata.get('scope', 'destination')}",
-                        f"City: {doc.metadata.get('city', 'unknown')}",
-                        f"Category: {doc.metadata.get('category', 'general')}",
+                        f"City: {meta.city}",
+                        f"Category: {meta.category}",
                         f"Content: {doc.page_content.strip()}",
                     ]
                 )
@@ -368,37 +381,28 @@ class TravelRAGService:
         return grouped
 
     def _build_sources(self, documents: List[Document]) -> List[SourceSnippet]:
-        seen: Set[Tuple[str, str, str]] = set()
+        seen: Set[DocMeta] = set()
         sources: List[SourceSnippet] = []
         for doc in documents:
-            key = (
-                doc.metadata.get("title", "Unknown"),
-                doc.metadata.get("city", "unknown"),
-                doc.metadata.get("category", "general"),
-            )
-            if key in seen:
+            meta = doc_meta(doc)
+            if meta in seen:
                 continue
-            seen.add(key)
+            seen.add(meta)
             sources.append(
                 SourceSnippet(
-                    title=key[0],
-                    city=key[1],
-                    category=key[2],
+                    title=meta.title,
+                    city=meta.city,
+                    category=meta.category,
                     excerpt=doc.page_content.strip()[:220],
                 )
             )
         return sources
 
     def _dedupe_documents(self, documents: List[Document]) -> List[Document]:
-        seen: Set[Tuple[str, str, str, int]] = set()
+        seen: Set[Tuple[DocMeta, int]] = set()
         deduped: List[Document] = []
         for doc in documents:
-            key = (
-                doc.metadata.get("title", "Unknown"),
-                doc.metadata.get("city", "unknown"),
-                doc.metadata.get("category", "general"),
-                doc.metadata.get("chunk_id", -1),
-            )
+            key = (doc_meta(doc), doc.metadata.get("chunk_id", -1))
             if key in seen:
                 continue
             seen.add(key)
