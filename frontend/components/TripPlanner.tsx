@@ -1,8 +1,15 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { FormEvent, useState } from "react";
 
 import { Activity, DayPlan, FeedbackRating, TripRequest, TripResponse } from "../lib/types";
+import type { MapStop } from "./ItineraryMapView";
+
+const ItineraryMapView = dynamic(() => import("./ItineraryMapView"), {
+  ssr: false,
+  loading: () => <div className="map-loading">Loading map…</div>,
+});
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
@@ -28,8 +35,8 @@ type MapCity = "Tokyo" | "Paris" | "New York City";
 
 type MapPoint = {
   label: string;
-  x: number;
-  y: number;
+  lat: number;
+  lng: number;
   aliases: string[];
 };
 
@@ -37,47 +44,47 @@ const CITY_MAPS: Record<MapCity, { label: string; points: MapPoint[] }> = {
   Tokyo: {
     label: "Tokyo",
     points: [
-      { label: "Tsukiji Outer Market", x: 694, y: 386, aliases: ["tsukiji outer market", "tsukiji"] },
-      { label: "Shinjuku", x: 262, y: 262, aliases: ["shinjuku"] },
-      { label: "Omoide Yokocho", x: 242, y: 284, aliases: ["omoide yokocho"] },
-      { label: "Daikanyama T-Site", x: 302, y: 330, aliases: ["daikanyama t-site", "daikanyama"] },
-      { label: "Yanaka Ginza", x: 674, y: 190, aliases: ["yanaka ginza", "yanaka"] },
-      { label: "Kichijoji", x: 166, y: 196, aliases: ["kichijoji"] },
-      { label: "Ueno", x: 632, y: 152, aliases: ["ueno"] },
-      { label: "Asakusa", x: 716, y: 170, aliases: ["asakusa"] },
-      { label: "Senso-ji", x: 730, y: 180, aliases: ["senso-ji", "sensoji"] },
-      { label: "Akihabara", x: 640, y: 150, aliases: ["akihabara"] },
-      { label: "Shibuya", x: 262, y: 348, aliases: ["shibuya"] },
-      { label: "Ameya-Yokocho", x: 612, y: 176, aliases: ["ameya-yokocho", "ameya yokocho"] },
+      { label: "Tsukiji Outer Market", lat: 35.6655, lng: 139.7707, aliases: ["tsukiji outer market", "tsukiji"] },
+      { label: "Shinjuku", lat: 35.6938, lng: 139.7036, aliases: ["shinjuku"] },
+      { label: "Omoide Yokocho", lat: 35.6932, lng: 139.6997, aliases: ["omoide yokocho"] },
+      { label: "Daikanyama T-Site", lat: 35.6485, lng: 139.6989, aliases: ["daikanyama t-site", "daikanyama"] },
+      { label: "Yanaka Ginza", lat: 35.7276, lng: 139.7665, aliases: ["yanaka ginza", "yanaka"] },
+      { label: "Kichijoji", lat: 35.7032, lng: 139.5797, aliases: ["kichijoji"] },
+      { label: "Ueno", lat: 35.7141, lng: 139.7774, aliases: ["ueno"] },
+      { label: "Asakusa", lat: 35.7119, lng: 139.7967, aliases: ["asakusa"] },
+      { label: "Senso-ji", lat: 35.7148, lng: 139.7967, aliases: ["senso-ji", "sensoji"] },
+      { label: "Akihabara", lat: 35.6984, lng: 139.7731, aliases: ["akihabara"] },
+      { label: "Shibuya", lat: 35.6595, lng: 139.7005, aliases: ["shibuya"] },
+      { label: "Ameya-Yokocho", lat: 35.7100, lng: 139.7745, aliases: ["ameya-yokocho", "ameya yokocho"] },
     ],
   },
   Paris: {
     label: "Paris",
     points: [
-      { label: "Rue Cler", x: 392, y: 400, aliases: ["rue cler"] },
-      { label: "Le Marais", x: 570, y: 298, aliases: ["marais"] },
-      { label: "Louvre", x: 522, y: 282, aliases: ["louvre"] },
-      { label: "Tuileries", x: 490, y: 270, aliases: ["tuileries"] },
-      { label: "Saint-Germain-des-Prés", x: 430, y: 336, aliases: ["saint-germain-des-pres", "saint germain des pres"] },
-      { label: "Montmartre", x: 530, y: 148, aliases: ["montmartre"] },
-      { label: "Latin Quarter", x: 488, y: 398, aliases: ["latin quarter"] },
-      { label: "Île de la Cité", x: 520, y: 306, aliases: ["ile de la cite", "île de la cité", "cite"] },
-      { label: "Seine", x: 516, y: 300, aliases: ["seine"] },
+      { label: "Rue Cler", lat: 48.8566, lng: 2.3050, aliases: ["rue cler"] },
+      { label: "Le Marais", lat: 48.8575, lng: 2.3610, aliases: ["marais"] },
+      { label: "Louvre", lat: 48.8606, lng: 2.3376, aliases: ["louvre"] },
+      { label: "Tuileries", lat: 48.8634, lng: 2.3275, aliases: ["tuileries"] },
+      { label: "Saint-Germain-des-Prés", lat: 48.8539, lng: 2.3338, aliases: ["saint-germain-des-pres", "saint germain des pres"] },
+      { label: "Montmartre", lat: 48.8867, lng: 2.3431, aliases: ["montmartre"] },
+      { label: "Latin Quarter", lat: 48.8499, lng: 2.3470, aliases: ["latin quarter"] },
+      { label: "Île de la Cité", lat: 48.8550, lng: 2.3470, aliases: ["ile de la cite", "île de la cité", "cite"] },
+      { label: "Seine", lat: 48.8566, lng: 2.3522, aliases: ["seine"] },
     ],
   },
   "New York City": {
     label: "New York City",
     points: [
-      { label: "Central Park", x: 548, y: 150, aliases: ["central park"] },
-      { label: "Museum Mile", x: 572, y: 170, aliases: ["museum mile"] },
-      { label: "Upper West Side", x: 468, y: 190, aliases: ["upper west side"] },
-      { label: "Chelsea Market", x: 492, y: 348, aliases: ["chelsea market"] },
-      { label: "SoHo", x: 566, y: 392, aliases: ["soho"] },
-      { label: "Greenwich Village", x: 530, y: 430, aliases: ["greenwich village"] },
-      { label: "Times Square", x: 528, y: 268, aliases: ["times square"] },
-      { label: "Grand Central", x: 600, y: 246, aliases: ["grand central"] },
-      { label: "DUMBO", x: 670, y: 560, aliases: ["dumbo"] },
-      { label: "Brooklyn Heights", x: 634, y: 520, aliases: ["brooklyn heights"] },
+      { label: "Central Park", lat: 40.7829, lng: -73.9654, aliases: ["central park"] },
+      { label: "Museum Mile", lat: 40.7790, lng: -73.9630, aliases: ["museum mile"] },
+      { label: "Upper West Side", lat: 40.7870, lng: -73.9754, aliases: ["upper west side"] },
+      { label: "Chelsea Market", lat: 40.7424, lng: -74.0061, aliases: ["chelsea market"] },
+      { label: "SoHo", lat: 40.7233, lng: -74.0030, aliases: ["soho"] },
+      { label: "Greenwich Village", lat: 40.7336, lng: -74.0027, aliases: ["greenwich village"] },
+      { label: "Times Square", lat: 40.7580, lng: -73.9855, aliases: ["times square"] },
+      { label: "Grand Central", lat: 40.7527, lng: -73.9772, aliases: ["grand central"] },
+      { label: "DUMBO", lat: 40.7033, lng: -73.9881, aliases: ["dumbo"] },
+      { label: "Brooklyn Heights", lat: 40.6959, lng: -73.9936, aliases: ["brooklyn heights"] },
     ],
   },
 };
@@ -428,62 +435,21 @@ function DayCard({
 }
 
 function ItineraryMap({ destination, day }: { destination: MapCity; day: DayPlan }) {
-  const city = CITY_MAPS[destination];
   const stops = getStopsForDay(destination, day);
   const orderedStops = stops.length ? stops : getFallbackStops(destination, day);
-  const points = orderedStops.map((stop, index) => ({ ...stop, index: index + 1 }));
-  const path = points.map((point) => `${point.x},${point.y}`).join(" ");
+  const mapStops: MapStop[] = orderedStops.map((stop, index) => ({
+    label: stop.label,
+    lat: stop.lat,
+    lng: stop.lng,
+    index: index + 1,
+    detail: findActivityForStop(day, stop.label)?.title ?? undefined,
+  }));
 
   return (
     <div className="itinerary-map">
-      <svg viewBox="0 0 1000 640" role="img" aria-label={`${city.label} itinerary map for day ${day.day}`}>
-        <defs>
-          <pattern id="grid" width="80" height="80" patternUnits="userSpaceOnUse">
-            <path d="M 80 0 L 0 0 0 80" fill="none" stroke="rgba(23,35,38,0.06)" strokeWidth="1" />
-          </pattern>
-          <linearGradient id="mapFill" x1="0" x2="1" y1="0" y2="1">
-            <stop offset="0%" stopColor="#f8f5ef" />
-            <stop offset="100%" stopColor="#eef4f0" />
-          </linearGradient>
-        </defs>
-        <rect x="0" y="0" width="1000" height="640" rx="24" fill="url(#mapFill)" />
-        <rect x="0" y="0" width="1000" height="640" rx="24" fill="url(#grid)" />
-        <path
-          d={
-            destination === "Tokyo"
-              ? "M140 220 C240 110, 470 110, 640 180 C790 240, 850 340, 806 480 C756 590, 568 594, 392 548 C252 510, 120 370, 140 220 Z"
-              : destination === "Paris"
-                ? "M220 160 C360 90, 588 92, 746 192 C850 254, 872 390, 772 484 C646 600, 396 598, 228 500 C112 430, 100 236, 220 160 Z"
-                : "M150 164 C260 80, 458 72, 638 148 C808 216, 870 354, 806 492 C742 620, 548 602, 372 554 C216 512, 100 330, 150 164 Z"
-          }
-          fill="rgba(255,255,255,0.35)"
-          stroke="rgba(23,35,38,0.12)"
-          strokeWidth="2"
-        />
-        {points.length > 1 ? (
-          <polyline
-            fill="none"
-            points={path}
-            stroke="var(--accent)"
-            strokeDasharray="10 8"
-            strokeWidth="5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        ) : null}
-        {points.map((point) => (
-          <g key={`${point.label}-${point.index}`} transform={`translate(${point.x} ${point.y})`}>
-            <circle r="18" fill="rgba(15,118,110,0.15)" />
-            <circle r="11" fill="var(--accent)" />
-            <text x="0" y="4" textAnchor="middle" fontSize="12" fontWeight="900" fill="#ffffff">
-              {point.index}
-            </text>
-            <text x="18" y="-16" fontSize="12" fontWeight="800" fill="var(--ink)">
-              {point.label}
-            </text>
-          </g>
-        ))}
-      </svg>
+      <div className="map-canvas">
+        <ItineraryMapView stops={mapStops} />
+      </div>
 
       <div className="map-legend">
         <div>
