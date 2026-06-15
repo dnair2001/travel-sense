@@ -9,7 +9,7 @@ services:
     healthCheckPath: /health
     envVars:
       - key: PYTHON_VERSION
-        value: "3.11.9"
+        value: "3.12.7"
       # Set after the frontend is deployed (comma-separated origins, no trailing slash).
       - key: CORS_ORIGINS
         sync: false
