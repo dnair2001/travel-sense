@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.dependencies import get_rag_service
 from app.schemas import ActivityFeedbackRequest, ActivityFeedbackResponse, RefinementRequest, TripRequest, TripResponse
-from app.services.rag import GenerationError, TravelRAGService, UnsupportedDestinationError
+from app.services.rag import FeedbackPersistenceError, GenerationError, TravelRAGService, UnsupportedDestinationError
 
 router = APIRouter(prefix="/api", tags=["itinerary"])
 
@@ -55,5 +55,11 @@ def record_activity_feedback(
     feedback: ActivityFeedbackRequest,
     rag_service: TravelRAGService = Depends(get_rag_service),
 ) -> ActivityFeedbackResponse:
-    result = rag_service.record_activity_feedback(feedback)
+    try:
+        result = rag_service.record_activity_feedback(feedback)
+    except FeedbackPersistenceError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to save feedback: {exc}",
+        ) from exc
     return ActivityFeedbackResponse(saved=True, message=result["message"])
