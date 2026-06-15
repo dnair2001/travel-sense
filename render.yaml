@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: travel-sense-api
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      # Set after the frontend is deployed (comma-separated origins, no trailing slash).
+      - key: CORS_ORIGINS
+        sync: false
+      # Optional: add to enable real LLM generation + OpenAI embeddings.
+      - key: OPENAI_API_KEY
+        sync: false

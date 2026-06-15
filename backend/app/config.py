@@ -10,8 +10,14 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-4o-mini"
     chroma_dir: str = "./chroma_db"
     collection_name: str = "travel-sense-docs"
+    # Comma-separated list of allowed frontend origins for CORS.
+    cors_origins: str = "http://localhost:3000"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
 
     @property
     def app_dir(self) -> Path:
