@@ -6,7 +6,9 @@ export default function HomePage() {
       <section className="hero">
         <div className="hero-copy">
           <p className="eyebrow">Personal RAG travel planning</p>
-          <h1>TravelSense</h1>
+          <h1>
+            Travel<span className="title-accent">Sense</span>
+          </h1>
           <p className="lede">
             Build an itinerary from curated city guides, saved places, trip ratings, food preferences,
             budget style, and pace constraints.
