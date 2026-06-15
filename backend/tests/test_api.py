@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 from app.dependencies import get_rag_service
 from app.main import app
 from app.schemas import Activity, DayPlan, SourceSnippet, TripResponse
-from app.services.rag import GenerationError, UnsupportedDestinationError
+from app.services.rag import FeedbackPersistenceError, GenerationError, UnsupportedDestinationError
 
 
 class FakeRAGService:
@@ -53,6 +53,8 @@ class FakeRAGService:
         )
 
     def record_activity_feedback(self, feedback):
+        if feedback.title == "__FAIL__":
+            raise FeedbackPersistenceError("disk write failed")
         return {"message": f"Saved {feedback.rating} feedback for {feedback.title}."}
 
 
@@ -265,3 +267,21 @@ def test_record_activity_feedback_route(client):
         "saved": True,
         "message": "Saved love feedback for Daikanyama T-Site.",
     }
+
+
+def test_record_activity_feedback_route_handles_persistence_error(client):
+    response = client.post(
+        "/api/feedback",
+        json={
+            "destination": "Tokyo",
+            "day": 1,
+            "period": "Morning",
+            "title": "__FAIL__",
+            "rating": "love",
+            "note": "",
+            "source_titles": [],
+        },
+    )
+
+    assert response.status_code == 500
+    assert "Failed to save feedback" in response.json()["detail"]

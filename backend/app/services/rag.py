@@ -1,4 +1,5 @@
 import json
+import logging
 import re
 from datetime import datetime, timezone
 from functools import cached_property
@@ -17,6 +18,8 @@ from app.config import Settings
 from app.schemas import Activity, ActivityFeedbackRequest, DayPlan, RefinementRequest, SourceSnippet, TripRequest, TripResponse
 from app.services.hash_embeddings import HashEmbeddings
 
+logger = logging.getLogger(__name__)
+
 
 class UnsupportedDestinationError(ValueError):
     def __init__(self, destination: str) -> None:
@@ -26,6 +29,11 @@ class UnsupportedDestinationError(ValueError):
 
 class GenerationError(ValueError):
     def __init__(self, message: str = "Unable to generate a valid itinerary.") -> None:
+        super().__init__(message)
+
+
+class FeedbackPersistenceError(RuntimeError):
+    def __init__(self, message: str = "Failed to persist activity feedback.") -> None:
         super().__init__(message)
 
 
@@ -57,16 +65,25 @@ class TravelRAGService:
         return self._vectorstore
 
     def load_source_documents(self) -> List[Document]:
+        data_dir = self.settings.data_dir
+        if not data_dir.exists():
+            logger.warning("Data directory does not exist: %s", data_dir)
+            return []
+
         docs: List[Document] = []
-        for city_dir in sorted(path for path in self.settings.data_dir.iterdir() if path.is_dir()):
-            loader = DirectoryLoader(
-                str(city_dir),
-                glob="*.md",
-                loader_cls=TextLoader,
-                loader_kwargs={"encoding": "utf-8"},
-                show_progress=False,
-            )
-            city_docs = loader.load()
+        for city_dir in sorted(path for path in data_dir.iterdir() if path.is_dir()):
+            try:
+                loader = DirectoryLoader(
+                    str(city_dir),
+                    glob="*.md",
+                    loader_cls=TextLoader,
+                    loader_kwargs={"encoding": "utf-8"},
+                    show_progress=False,
+                )
+                city_docs = loader.load()
+            except Exception:
+                logger.exception("Failed to load documents from %s, skipping directory", city_dir)
+                continue
             for doc in city_docs:
                 path = Path(doc.metadata.get("source", ""))
                 if city_dir.name == "personal":
@@ -99,8 +116,13 @@ class TravelRAGService:
 
     def rebuild_vectorstore(self) -> Dict[str, int]:
         documents = self.load_source_documents()
+        if not documents:
+            logger.warning("No source documents found; vectorstore will be empty")
         chunks = self.split_documents(documents)
-        self.vectorstore.delete_collection()
+        try:
+            self.vectorstore.delete_collection()
+        except Exception:
+            logger.exception("Failed to delete existing collection, recreating")
         self._vectorstore = Chroma(
             collection_name=self.settings.collection_name,
             persist_directory=str(self.settings.chroma_path),
@@ -121,9 +143,12 @@ class TravelRAGService:
         }
 
     def ensure_index(self) -> None:
-        collection = self.vectorstore._collection
-        if collection.count() == 0:
-            self.rebuild_vectorstore()
+        try:
+            collection = self.vectorstore._collection
+            if collection.count() == 0:
+                self.rebuild_vectorstore()
+        except Exception:
+            logger.exception("Failed to ensure vector index on startup")
 
     def retrieve_documents(self, trip: TripRequest, extra_query: str = "") -> List[Document]:
         self.ensure_index()
@@ -177,25 +202,37 @@ class TravelRAGService:
         self.ensure_index()
         entry = self._format_feedback_entry(feedback)
         feedback_path = self.settings.data_dir / "personal" / "activity_feedback.md"
-        feedback_path.parent.mkdir(parents=True, exist_ok=True)
-        if not feedback_path.exists():
-            feedback_path.write_text("# Activity Feedback\n\n", encoding="utf-8")
-        with feedback_path.open("a", encoding="utf-8") as file:
-            file.write(f"\n{entry}\n")
+        try:
+            feedback_path.parent.mkdir(parents=True, exist_ok=True)
+            if not feedback_path.exists():
+                feedback_path.write_text("# Activity Feedback\n\n", encoding="utf-8")
+            with feedback_path.open("a", encoding="utf-8") as file:
+                file.write(f"\n{entry}\n")
+        except OSError as exc:
+            logger.exception("Failed to write feedback to %s", feedback_path)
+            raise FeedbackPersistenceError(
+                f"Could not write feedback to disk: {exc}"
+            ) from exc
 
-        self.vectorstore.add_documents(
-            [
-                Document(
-                    page_content=entry,
-                    metadata={
-                        "city": "personal",
-                        "category": "activity feedback",
-                        "scope": "personal",
-                        "title": "Activity Feedback",
-                    },
-                )
-            ]
-        )
+        try:
+            self.vectorstore.add_documents(
+                [
+                    Document(
+                        page_content=entry,
+                        metadata={
+                            "city": "personal",
+                            "category": "activity feedback",
+                            "scope": "personal",
+                            "title": "Activity Feedback",
+                        },
+                    )
+                ]
+            )
+        except Exception as exc:
+            logger.exception("Failed to index feedback in vectorstore")
+            raise FeedbackPersistenceError(
+                f"Feedback written to disk but vectorstore indexing failed: {exc}"
+            ) from exc
         return {"message": "Activity feedback saved to personal travel memory."}
 
     def _plan_with_llm(self, trip: TripRequest, documents: List[Document]) -> TripResponse:
@@ -226,13 +263,19 @@ class TravelRAGService:
             temperature=0.4,
             model_kwargs={"response_format": {"type": "json_object"}},
         )
-        response = chain.invoke(
-            {
-                "trip_request": trip.model_dump_json(indent=2),
-                "context": context,
-                "days": trip.days,
-            }
-        )
+        try:
+            response = chain.invoke(
+                {
+                    "trip_request": trip.model_dump_json(indent=2),
+                    "context": context,
+                    "days": trip.days,
+                }
+            )
+        except Exception as exc:
+            logger.exception("LLM call failed during itinerary generation")
+            raise GenerationError(
+                f"LLM provider error: {exc}"
+            ) from exc
         return self._parse_llm_trip_response(response.content, documents)
 
     def _refine_with_llm(self, request: RefinementRequest, documents: List[Document]) -> TripResponse:
@@ -268,15 +311,21 @@ class TravelRAGService:
             temperature=0.4,
             model_kwargs={"response_format": {"type": "json_object"}},
         )
-        response = chain.invoke(
-            {
-                "trip_request": request.trip.model_dump_json(indent=2),
-                "current_summary": request.current_summary,
-                "current_itinerary": json.dumps([day.model_dump() for day in request.current_itinerary], indent=2),
-                "instruction": request.instruction,
-                "context": context,
-            }
-        )
+        try:
+            response = chain.invoke(
+                {
+                    "trip_request": request.trip.model_dump_json(indent=2),
+                    "current_summary": request.current_summary,
+                    "current_itinerary": json.dumps([day.model_dump() for day in request.current_itinerary], indent=2),
+                    "instruction": request.instruction,
+                    "context": context,
+                }
+            )
+        except Exception as exc:
+            logger.exception("LLM call failed during itinerary refinement")
+            raise GenerationError(
+                f"LLM provider error: {exc}"
+            ) from exc
         return self._parse_llm_trip_response(response.content, documents)
 
     def _plan_demo(self, trip: TripRequest, documents: List[Document]) -> TripResponse:
