@@ -407,20 +407,25 @@ class TravelRAGService:
 
     def _format_feedback_entry(self, feedback: ActivityFeedbackRequest) -> str:
         timestamp = datetime.now(timezone.utc).isoformat()
-        source_text = ", ".join(feedback.source_titles) if feedback.source_titles else "none"
-        note = feedback.note.strip() or "none"
+        source_text = ", ".join(self._sanitize(t) for t in feedback.source_titles) if feedback.source_titles else "none"
+        note = self._sanitize(feedback.note.strip()) or "none"
         return "\n".join(
             [
-                f"## Feedback: {feedback.destination} day {feedback.day} {feedback.period}",
+                f"## Feedback: {self._sanitize(feedback.destination)} day {feedback.day} {feedback.period}",
                 "",
                 f"- Recorded at: {timestamp}",
-                f"- Destination: {feedback.destination}",
-                f"- Activity: {feedback.title}",
+                f"- Destination: {self._sanitize(feedback.destination)}",
+                f"- Activity: {self._sanitize(feedback.title)}",
                 f"- Rating: {feedback.rating.replace('_', ' ')}",
                 f"- Note: {note}",
                 f"- Sources: {source_text}",
             ]
         )
+
+    @staticmethod
+    def _sanitize(value: str) -> str:
+        """Strip characters that could be used for markdown/HTML injection."""
+        return re.sub(r"[<>\[\]`]", "", value).strip()
 
     def _parse_llm_trip_response(self, content: str, documents: List[Document]) -> TripResponse:
         try:

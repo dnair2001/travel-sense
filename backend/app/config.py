@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-4o-mini"
     chroma_dir: str = "./chroma_db"
     collection_name: str = "travel-sense-docs"
+    debug: bool = False
     # Comma-separated list of allowed frontend origins for CORS.
     cors_origins: str = "http://localhost:3000"
 
