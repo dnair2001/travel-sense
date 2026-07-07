@@ -65,3 +65,22 @@ class ActivityFeedbackRequest(BaseModel):
 class ActivityFeedbackResponse(BaseModel):
     saved: bool
     message: str
+
+
+class SearchRequest(BaseModel):
+    query: str = Field(..., min_length=1)
+    city: str = ""
+    limit: int = Field(default=8, ge=1, le=20)
+
+
+class SearchResult(BaseModel):
+    title: str
+    city: str
+    category: str
+    scope: str
+    excerpt: str
+
+
+class SearchResponse(BaseModel):
+    results: list[SearchResult]
+    query: str

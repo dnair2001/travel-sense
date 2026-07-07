@@ -14,7 +14,7 @@ from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from pydantic import ValidationError
 
 from app.config import Settings
-from app.schemas import Activity, ActivityFeedbackRequest, DayPlan, RefinementRequest, SourceSnippet, TripRequest, TripResponse
+from app.schemas import Activity, ActivityFeedbackRequest, DayPlan, RefinementRequest, SearchResult, SourceSnippet, TripRequest, TripResponse
 from app.services.hash_embeddings import HashEmbeddings
 
 
@@ -172,6 +172,35 @@ class TravelRAGService:
         if self.settings.openai_api_key:
             return self._refine_with_llm(request, documents)
         return self._refine_demo(request, documents)
+
+    def search(self, query: str, city: str = "", limit: int = 8) -> List[SearchResult]:
+        self.ensure_index()
+        filters: Optional[dict] = None
+        if city:
+            city_key = self.normalize_city_key(city)
+            filters = {"city": city_key}
+        documents = self.vectorstore.similarity_search(query, k=limit, filter=filters)
+        seen: Set[Tuple[str, str, str]] = set()
+        results: List[SearchResult] = []
+        for doc in documents:
+            key = (
+                doc.metadata.get("title", "Unknown"),
+                doc.metadata.get("city", "unknown"),
+                doc.metadata.get("category", "general"),
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            results.append(
+                SearchResult(
+                    title=key[0],
+                    city=key[1],
+                    category=key[2],
+                    scope=doc.metadata.get("scope", "destination"),
+                    excerpt=doc.page_content.strip()[:280],
+                )
+            )
+        return results
 
     def record_activity_feedback(self, feedback: ActivityFeedbackRequest) -> Dict[str, str]:
         self.ensure_index()
