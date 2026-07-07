@@ -179,7 +179,7 @@ class TravelRAGService:
         if city:
             city_key = self.normalize_city_key(city)
             filters = {"city": city_key}
-        documents = self.vectorstore.similarity_search(query, k=limit, filter=filters)
+        documents = self.vectorstore.similarity_search(query, k=limit * 3, filter=filters)
         seen: Set[Tuple[str, str, str]] = set()
         results: List[SearchResult] = []
         for doc in documents:
@@ -200,6 +200,8 @@ class TravelRAGService:
                     excerpt=doc.page_content.strip()[:280],
                 )
             )
+            if len(results) >= limit:
+                break
         return results
 
     def record_activity_feedback(self, feedback: ActivityFeedbackRequest) -> Dict[str, str]:
