@@ -54,3 +54,16 @@ export type ActivityFeedbackResponse = {
   saved: boolean;
   message: string;
 };
+
+export type SearchResult = {
+  title: string;
+  city: string;
+  category: string;
+  scope: string;
+  excerpt: string;
+};
+
+export type SearchResponse = {
+  results: SearchResult[];
+  query: string;
+};
