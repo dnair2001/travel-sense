@@ -5,12 +5,15 @@
 .env.local
 .env.local.*
 !.env.local.example
+backend/firebase-service-account.json
+*firebase-adminsdk*.json
 
 # ===== macOS =====
 .DS_Store
 
 # ===== Python (backend) =====
 .venv/
+.venv*/
 venv/
 __pycache__/
 *.py[cod]

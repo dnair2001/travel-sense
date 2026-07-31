@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
 from app.dependencies import get_rag_service
 from app.routers.itinerary import router as itinerary_router
+from app.routers.sources import router as sources_router
 
 
 @asynccontextmanager
@@ -35,3 +36,4 @@ def health() -> dict[str, str]:
 
 
 app.include_router(itinerary_router)
+app.include_router(sources_router)

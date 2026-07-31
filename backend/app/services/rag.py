@@ -76,6 +76,8 @@ class TravelRAGService:
                         "category": category,
                         "scope": "personal",
                         "title": path.stem.replace("_", " ").title(),
+                        "owner_scope": "user",
+                        "user_id": self.settings.legacy_personal_owner_user_id,
                     }
                 else:
                     category = path.stem.split("_", 1)[-1] if "_" in path.stem else "general"
@@ -84,11 +86,17 @@ class TravelRAGService:
                         "category": category.replace("-", " "),
                         "scope": "destination",
                         "title": path.stem.replace("_", " ").title(),
+                        "owner_scope": "public",
                     }
                 doc.metadata.update(
                     metadata
                 )
             docs.extend(city_docs)
+        # The legacy personal/ notes belong to one specific account. Until that
+        # account's Firebase UID is configured, exclude them entirely rather
+        # than leaking them to every signed-in user as owner_scope "public".
+        if self.settings.legacy_personal_owner_user_id is None:
+            docs = [doc for doc in docs if doc.metadata.get("scope") != "personal"]
         return docs
 
     def split_documents(self, documents: List[Document]) -> List[Document]:
@@ -100,13 +108,22 @@ class TravelRAGService:
     def rebuild_vectorstore(self) -> Dict[str, int]:
         documents = self.load_source_documents()
         chunks = self.split_documents(documents)
-        self.vectorstore.delete_collection()
-        self._vectorstore = Chroma(
-            collection_name=self.settings.collection_name,
-            persist_directory=str(self.settings.chroma_path),
-            embedding_function=self.embeddings,
-        )
-        self._vectorstore.add_documents(chunks)
+        seed_ids = [self._seed_chunk_id(chunk) for chunk in chunks]
+        # Only replace seed content (owner_scope "public", plus the legacy
+        # personal notes which are also loaded here). Never wipe the whole
+        # collection: that would destroy every user's ingested URL sources,
+        # which live in the same collection tagged owner_scope "user".
+        self.vectorstore._collection.delete(where={"scope": "destination"})
+        if self.settings.legacy_personal_owner_user_id is not None:
+            self.vectorstore._collection.delete(
+                where={
+                    "$and": [
+                        {"scope": "personal"},
+                        {"user_id": self.settings.legacy_personal_owner_user_id},
+                    ]
+                }
+            )
+        self.vectorstore.add_documents(chunks, ids=seed_ids)
         unique_cities = {
             doc.metadata.get("city", "unknown")
             for doc in documents
@@ -120,12 +137,17 @@ class TravelRAGService:
             "personal_documents": personal_docs,
         }
 
+    def _seed_chunk_id(self, chunk: Document) -> str:
+        city = chunk.metadata.get("city", "unknown")
+        title = chunk.metadata.get("title", "untitled")
+        return f"seed:{city}:{title}:{chunk.metadata.get('chunk_id')}"
+
     def ensure_index(self) -> None:
         collection = self.vectorstore._collection
         if collection.count() == 0:
             self.rebuild_vectorstore()
 
-    def retrieve_documents(self, trip: TripRequest, extra_query: str = "") -> List[Document]:
+    def retrieve_documents(self, trip: TripRequest, user_id: str, extra_query: str = "") -> List[Document]:
         self.ensure_index()
         query = " ".join(
             part
@@ -142,47 +164,61 @@ class TravelRAGService:
             if part
         )
         city_key = self.normalize_city_key(trip.destination)
-        destination_documents = self.vectorstore.similarity_search(
+        public_destination_documents = self.vectorstore.similarity_search(
             query,
             k=6,
-            filter={"$and": [{"scope": "destination"}, {"city": city_key}]},
+            filter={
+                "$and": [
+                    {"scope": "destination"},
+                    {"city": city_key},
+                    {"owner_scope": "public"},
+                ]
+            },
         )
-        saved_place_documents = self.vectorstore.similarity_search(
-            query,
-            k=3,
-            filter={"$and": [{"scope": "personal"}, {"category": f"saved places {city_key}"}]},
-        )
-        personal_documents = self.vectorstore.similarity_search(
+        user_destination_documents = self.vectorstore.similarity_search(
             query,
             k=6,
-            filter={"scope": "personal"},
+            filter={
+                "$and": [
+                    {"scope": "destination"},
+                    {"city": city_key},
+                    {"owner_scope": "user"},
+                    {"user_id": user_id},
+                ]
+            },
         )
-        return self._dedupe_documents(destination_documents + saved_place_documents + personal_documents)
+        user_personal_documents = self.vectorstore.similarity_search(
+            query,
+            k=6,
+            filter={
+                "$and": [
+                    {"scope": "personal"},
+                    {"owner_scope": "user"},
+                    {"user_id": user_id},
+                ]
+            },
+        )
+        return self._dedupe_documents(
+            public_destination_documents + user_destination_documents + user_personal_documents
+        )
 
-    def plan_trip(self, trip: TripRequest) -> TripResponse:
-        documents = self.retrieve_documents(trip)
+    def plan_trip(self, trip: TripRequest, user_id: str) -> TripResponse:
+        documents = self.retrieve_documents(trip, user_id)
         self._ensure_destination_supported(trip.destination, documents)
         if self.settings.openai_api_key:
             return self._plan_with_llm(trip, documents)
         return self._plan_demo(trip, documents)
 
-    def refine_trip(self, request: RefinementRequest) -> TripResponse:
-        documents = self.retrieve_documents(request.trip, request.instruction)
+    def refine_trip(self, request: RefinementRequest, user_id: str) -> TripResponse:
+        documents = self.retrieve_documents(request.trip, user_id, request.instruction)
         self._ensure_destination_supported(request.trip.destination, documents)
         if self.settings.openai_api_key:
             return self._refine_with_llm(request, documents)
         return self._refine_demo(request, documents)
 
-    def record_activity_feedback(self, feedback: ActivityFeedbackRequest) -> Dict[str, str]:
+    def record_activity_feedback(self, feedback: ActivityFeedbackRequest, user_id: str) -> Dict[str, str]:
         self.ensure_index()
         entry = self._format_feedback_entry(feedback)
-        feedback_path = self.settings.data_dir / "personal" / "activity_feedback.md"
-        feedback_path.parent.mkdir(parents=True, exist_ok=True)
-        if not feedback_path.exists():
-            feedback_path.write_text("# Activity Feedback\n\n", encoding="utf-8")
-        with feedback_path.open("a", encoding="utf-8") as file:
-            file.write(f"\n{entry}\n")
-
         self.vectorstore.add_documents(
             [
                 Document(
@@ -192,6 +228,8 @@ class TravelRAGService:
                         "category": "activity feedback",
                         "scope": "personal",
                         "title": "Activity Feedback",
+                        "owner_scope": "user",
+                        "user_id": user_id,
                     },
                 )
             ]
@@ -472,6 +510,9 @@ class TravelRAGService:
         return ["Morning", "Afternoon", "Evening"][min(index, 2)]
 
     def _ensure_destination_supported(self, destination: str, documents: List[Document]) -> None:
+        # Destinations are free text now, so this no longer means "not one of
+        # our 3 cities" — it means neither the public seed tier nor this
+        # user's own ingested sources have anything for this destination yet.
         city_key = self.normalize_city_key(destination)
         if not any(
             doc.metadata.get("scope") == "destination" and doc.metadata.get("city") == city_key
@@ -485,7 +526,7 @@ class TravelRAGService:
             "new york": "nyc",
             "new york city": "nyc",
             "nyc": "nyc",
-            "tokyo": "tokyo",
-            "paris": "paris",
         }
-        return aliases.get(normalized, normalized.replace(" ", "-"))
+        normalized = aliases.get(normalized, normalized)
+        slug = re.sub(r"[^a-z0-9]+", "-", normalized).strip("-")
+        return slug or "destination"

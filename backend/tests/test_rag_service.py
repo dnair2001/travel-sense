@@ -5,12 +5,15 @@ from app.config import Settings
 from app.schemas import Activity, ActivityFeedbackRequest, DayPlan, RefinementRequest, TripRequest
 from app.services.rag import GenerationError, TravelRAGService, UnsupportedDestinationError
 
+TEST_USER = "test-user"
 
-def make_service(tmp_path):
+
+def make_service(tmp_path, legacy_personal_owner_user_id=TEST_USER):
     settings = Settings(
         openai_api_key=None,
         chroma_dir=str(tmp_path / "chroma"),
         collection_name="test-travel-sense-docs",
+        legacy_personal_owner_user_id=legacy_personal_owner_user_id,
     )
     return TravelRAGService(settings)
 
@@ -54,7 +57,7 @@ def test_retrieve_documents_filters_to_destination_city(tmp_path):
         constraints="near transit",
     )
 
-    documents = service.retrieve_documents(trip)
+    documents = service.retrieve_documents(trip, TEST_USER)
 
     assert documents
     destination_documents = [doc for doc in documents if doc.metadata["scope"] == "destination"]
@@ -80,7 +83,7 @@ def test_plan_trip_demo_uses_retrieved_sources(tmp_path):
         constraints="avoid taxis",
     )
 
-    response = service.plan_trip(trip)
+    response = service.plan_trip(trip, TEST_USER)
 
     assert response.generation_mode == "demo"
     assert len(response.itinerary) == 3
@@ -103,7 +106,7 @@ def test_retrieve_documents_weights_destination_saved_places(tmp_path):
         constraints="avoid packed schedules",
     )
 
-    documents = service.retrieve_documents(trip)
+    documents = service.retrieve_documents(trip, TEST_USER)
     titles = [doc.metadata["title"] for doc in documents]
 
     assert "Saved Places Tokyo" in titles
@@ -124,7 +127,7 @@ def test_plan_trip_rejects_unsupported_destination(tmp_path):
     )
 
     with pytest.raises(UnsupportedDestinationError) as exc_info:
-        service.plan_trip(trip)
+        service.plan_trip(trip, TEST_USER)
 
     assert exc_info.value.destination == "Atlantis"
 
@@ -162,7 +165,7 @@ def test_refine_trip_demo_preserves_days_and_applies_instruction(tmp_path):
         instruction="add more indoor options",
     )
 
-    response = service.refine_trip(request)
+    response = service.refine_trip(request, TEST_USER)
 
     assert response.generation_mode == "demo"
     assert response.summary == "Original NYC plan. Updated to reflect: add more indoor options."
@@ -203,9 +206,144 @@ def test_refine_trip_rejects_unsupported_destination(tmp_path):
     )
 
     with pytest.raises(UnsupportedDestinationError) as exc_info:
-        service.refine_trip(request)
+        service.refine_trip(request, TEST_USER)
 
     assert exc_info.value.destination == "Atlantis"
+
+
+def test_retrieve_documents_scopes_private_docs_to_owning_user(tmp_path):
+    service = make_service(tmp_path)
+    service.rebuild_vectorstore()
+    service.vectorstore.add_documents(
+        [
+            Document(
+                page_content="User A's favorite Lisbon miradouros.",
+                metadata={
+                    "title": "User A Lisbon Notes",
+                    "city": "lisbon",
+                    "category": "blog",
+                    "scope": "destination",
+                    "owner_scope": "user",
+                    "user_id": "user-a",
+                },
+            ),
+            Document(
+                page_content="User B's favorite Lisbon miradouros.",
+                metadata={
+                    "title": "User B Lisbon Notes",
+                    "city": "lisbon",
+                    "category": "blog",
+                    "scope": "destination",
+                    "owner_scope": "user",
+                    "user_id": "user-b",
+                },
+            ),
+        ],
+        ids=["user-a-lisbon-0", "user-b-lisbon-0"],
+    )
+    trip = TripRequest(
+        destination="Lisbon",
+        days=1,
+        budget="mid-range",
+        interests=["miradouros"],
+        travel_style="solo",
+        pace="balanced",
+        constraints="",
+    )
+
+    user_a_documents = service.retrieve_documents(trip, "user-a")
+    user_b_documents = service.retrieve_documents(trip, "user-b")
+
+    user_a_titles = {doc.metadata["title"] for doc in user_a_documents}
+    user_b_titles = {doc.metadata["title"] for doc in user_b_documents}
+    assert "User A Lisbon Notes" in user_a_titles
+    assert "User B Lisbon Notes" not in user_a_titles
+    assert "User B Lisbon Notes" in user_b_titles
+    assert "User A Lisbon Notes" not in user_b_titles
+
+
+def test_public_seed_content_visible_to_all_users(tmp_path):
+    service = make_service(tmp_path)
+    service.rebuild_vectorstore()
+    trip = TripRequest(
+        destination="Paris",
+        days=1,
+        budget="mid-range",
+        interests=["food"],
+        travel_style="solo",
+        pace="balanced",
+        constraints="",
+    )
+
+    documents = service.retrieve_documents(trip, "a-brand-new-user-with-no-data")
+
+    assert any(doc.metadata.get("owner_scope") == "public" for doc in documents)
+
+
+def test_rebuild_vectorstore_does_not_delete_user_documents(tmp_path):
+    service = make_service(tmp_path)
+    service.rebuild_vectorstore()
+    service.vectorstore.add_documents(
+        [
+            Document(
+                page_content="A private Lisbon note.",
+                metadata={
+                    "title": "Private Lisbon Note",
+                    "city": "lisbon",
+                    "category": "blog",
+                    "scope": "destination",
+                    "owner_scope": "user",
+                    "user_id": "user-a",
+                },
+            )
+        ],
+        ids=["user-a-lisbon-0"],
+    )
+
+    service.rebuild_vectorstore()
+
+    stored = service.vectorstore._collection.get(ids=["user-a-lisbon-0"])
+    assert stored["ids"] == ["user-a-lisbon-0"]
+
+
+def test_personal_data_excluded_without_legacy_owner_configured(tmp_path):
+    service = make_service(tmp_path, legacy_personal_owner_user_id=None)
+
+    result = service.rebuild_vectorstore()
+
+    assert result["personal_documents"] == 0
+    trip = TripRequest(
+        destination="Tokyo",
+        days=1,
+        budget="mid-range",
+        interests=["food"],
+        travel_style="solo",
+        pace="balanced",
+        constraints="",
+    )
+    documents = service.retrieve_documents(trip, TEST_USER)
+    assert not any(doc.metadata.get("scope") == "personal" for doc in documents)
+
+
+def test_format_feedback_entry_includes_activity_details(tmp_path):
+    service = make_service(tmp_path)
+    feedback = ActivityFeedbackRequest(
+        destination="Tokyo",
+        day=2,
+        period="Afternoon",
+        title="Daikanyama T-Site",
+        rating="love",
+        note="Great bookstore and cafe fit.",
+        source_titles=["Saved Places Tokyo"],
+    )
+
+    entry = service._format_feedback_entry(feedback)
+
+    assert "## Feedback: Tokyo day 2 Afternoon" in entry
+    assert "- Activity: Daikanyama T-Site" in entry
+    assert "- Rating: love" in entry
+    assert "- Note: Great bookstore and cafe fit." in entry
+    assert "- Sources: Saved Places Tokyo" in entry
 
 
 def test_parse_llm_trip_response_accepts_valid_json(tmp_path):
@@ -352,24 +490,3 @@ def test_parse_llm_trip_response_fills_missing_source_titles(tmp_path):
     response = service._parse_llm_trip_response(content, source_documents())
 
     assert response.itinerary[0].activities[0].source_titles == ["Paris Food Logistics"]
-
-
-def test_format_feedback_entry_includes_activity_details(tmp_path):
-    service = make_service(tmp_path)
-    feedback = ActivityFeedbackRequest(
-        destination="Tokyo",
-        day=2,
-        period="Afternoon",
-        title="Daikanyama T-Site",
-        rating="love",
-        note="Great bookstore and cafe fit.",
-        source_titles=["Saved Places Tokyo"],
-    )
-
-    entry = service._format_feedback_entry(feedback)
-
-    assert "## Feedback: Tokyo day 2 Afternoon" in entry
-    assert "- Activity: Daikanyama T-Site" in entry
-    assert "- Rating: love" in entry
-    assert "- Note: Great bookstore and cafe fit." in entry
-    assert "- Sources: Saved Places Tokyo" in entry

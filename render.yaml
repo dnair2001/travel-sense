@@ -16,3 +16,9 @@ services:
       # Optional: add to enable real LLM generation + OpenAI embeddings.
       - key: OPENAI_API_KEY
         sync: false
+      - key: FIREBASE_PROJECT_ID
+        sync: false
+      # Point this at a mounted Render Secret File containing the Firebase
+      # service-account JSON (Dashboard > Environment > Secret Files).
+      - key: FIREBASE_SERVICE_ACCOUNT_PATH
+        sync: false

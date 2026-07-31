@@ -1,14 +1,19 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from app.dependencies import get_rag_service
+from app.auth import get_current_user
+from app.dependencies import get_ingestion_service, get_rag_service
 from app.main import app
-from app.schemas import Activity, DayPlan, SourceSnippet, TripResponse
+from app.schemas import Activity, DayPlan, IngestedSource, SourceSnippet, TripResponse
+from app.services.ingestion import IngestionError
 from app.services.rag import GenerationError, UnsupportedDestinationError
+
+TEST_UID = "test-uid-123"
 
 
 class FakeRAGService:
-    def plan_trip(self, trip):
+    def plan_trip(self, trip, user_id):
+        assert user_id == TEST_UID
         if trip.destination == "Atlantis":
             raise UnsupportedDestinationError(trip.destination)
         if trip.destination == "Paris LLM Failure":
@@ -40,7 +45,8 @@ class FakeRAGService:
             generation_mode="demo",
         )
 
-    def refine_trip(self, request):
+    def refine_trip(self, request, user_id):
+        assert user_id == TEST_UID
         if request.trip.destination == "Atlantis":
             raise UnsupportedDestinationError(request.trip.destination)
         if request.trip.destination == "Paris LLM Failure":
@@ -52,13 +58,60 @@ class FakeRAGService:
             generation_mode="demo",
         )
 
-    def record_activity_feedback(self, feedback):
+    def record_activity_feedback(self, feedback, user_id):
+        assert user_id == TEST_UID
         return {"message": f"Saved {feedback.rating} feedback for {feedback.title}."}
+
+
+class FakeIngestionService:
+    def __init__(self):
+        self.ingested = []
+
+    def ingest(self, user_id, destination, url):
+        assert user_id == TEST_UID
+        if url == "https://example.com/broken":
+            raise IngestionError("Could not extract article text.")
+        self.ingested.append(url)
+        return {
+            "url": url,
+            "source_type": "blog",
+            "title": "Example Article",
+            "chunks_indexed": 2,
+            "city": destination.lower(),
+        }
+
+    def list_sources(self, user_id, destination=None):
+        assert user_id == TEST_UID
+        return [
+            IngestedSource(
+                url="https://example.com/article",
+                title="Example Article",
+                source_type="blog",
+                city="paris",
+                ingested_at="2026-01-01T00:00:00+00:00",
+                chunk_count=2,
+            )
+        ]
+
+    def delete_source(self, user_id, url):
+        assert user_id == TEST_UID
 
 
 @pytest.fixture
 def client():
     app.dependency_overrides[get_rag_service] = lambda: FakeRAGService()
+    app.dependency_overrides[get_ingestion_service] = lambda: FakeIngestionService()
+    app.dependency_overrides[get_current_user] = lambda: TEST_UID
+    try:
+        yield TestClient(app)
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def unauthenticated_client():
+    app.dependency_overrides[get_rag_service] = lambda: FakeRAGService()
+    app.dependency_overrides[get_ingestion_service] = lambda: FakeIngestionService()
     try:
         yield TestClient(app)
     finally:
@@ -93,6 +146,23 @@ def test_generate_itinerary_route_returns_trip_response(client):
     assert body["itinerary"][0]["activities"][0]["source_titles"] == ["Test Source"]
 
 
+def test_generate_itinerary_route_requires_authentication(unauthenticated_client):
+    response = unauthenticated_client.post(
+        "/api/itinerary",
+        json={
+            "destination": "Paris",
+            "days": 2,
+            "budget": "mid-range",
+            "interests": ["food"],
+            "travel_style": "couple",
+            "pace": "balanced",
+            "constraints": "",
+        },
+    )
+
+    assert response.status_code == 401
+
+
 def test_generate_itinerary_route_rejects_unsupported_destination(client):
     response = client.post(
         "/api/itinerary",
@@ -109,7 +179,7 @@ def test_generate_itinerary_route_rejects_unsupported_destination(client):
 
     assert response.status_code == 400
     assert response.json() == {
-        "detail": "Unsupported destination 'Atlantis'. Available destinations: Paris, Tokyo, NYC."
+        "detail": "No sources found for 'Atlantis'. Add a blog or YouTube link for this destination first."
     }
 
 
@@ -204,7 +274,7 @@ def test_refine_itinerary_route_rejects_unsupported_destination(client):
 
     assert response.status_code == 400
     assert response.json() == {
-        "detail": "Unsupported destination 'Atlantis'. Available destinations: Paris, Tokyo, NYC."
+        "detail": "No sources found for 'Atlantis'. Add a blog or YouTube link for this destination first."
     }
 
 
@@ -265,3 +335,46 @@ def test_record_activity_feedback_route(client):
         "saved": True,
         "message": "Saved love feedback for Daikanyama T-Site.",
     }
+
+
+def test_ingest_source_route(client):
+    response = client.post(
+        "/api/sources",
+        json={"destination": "Paris", "url": "https://example.com/article"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["url"] == "https://example.com/article"
+    assert body["chunks_indexed"] == 2
+    assert body["city"] == "paris"
+
+
+def test_ingest_source_route_returns_422_on_ingestion_error(client):
+    response = client.post(
+        "/api/sources",
+        json={"destination": "Paris", "url": "https://example.com/broken"},
+    )
+
+    assert response.status_code == 422
+
+
+def test_list_sources_route(client):
+    response = client.get("/api/sources", params={"destination": "Paris"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["sources"][0]["url"] == "https://example.com/article"
+
+
+def test_delete_source_route(client):
+    response = client.request("DELETE", "/api/sources", json={"url": "https://example.com/article"})
+
+    assert response.status_code == 200
+    assert response.json() == {"deleted": True}
+
+
+def test_sources_route_requires_authentication(unauthenticated_client):
+    response = unauthenticated_client.get("/api/sources")
+
+    assert response.status_code == 401

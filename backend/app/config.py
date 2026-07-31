@@ -13,6 +13,19 @@ class Settings(BaseSettings):
     # Comma-separated list of allowed frontend origins for CORS.
     cors_origins: str = "http://localhost:3000"
 
+    # Firebase Admin credentials for verifying ID tokens. Prefer a mounted
+    # service-account file (e.g. a Render Secret File) over the inline JSON
+    # blob; the JSON blob is meant for local .env use only.
+    firebase_project_id: Optional[str] = None
+    firebase_service_account_path: Optional[str] = None
+    firebase_service_account_json: Optional[str] = None
+
+    # backend/data/personal/*.md is one specific person's private travel
+    # notes, not shared seed content. It's excluded from retrieval entirely
+    # until this is set to that person's real Firebase UID (captured after
+    # they sign in once).
+    legacy_personal_owner_user_id: Optional[str] = None
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
     @property

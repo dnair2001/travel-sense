@@ -65,3 +65,40 @@ class ActivityFeedbackRequest(BaseModel):
 class ActivityFeedbackResponse(BaseModel):
     saved: bool
     message: str
+
+
+SourceType = Literal["blog", "youtube"]
+
+
+class SourceIngestRequest(BaseModel):
+    destination: str = Field(..., min_length=2)
+    url: str = Field(..., min_length=1)
+
+
+class SourceIngestResponse(BaseModel):
+    url: str
+    source_type: SourceType
+    title: str
+    chunks_indexed: int
+    city: str
+
+
+class IngestedSource(BaseModel):
+    url: str
+    title: str
+    source_type: SourceType
+    city: str
+    ingested_at: str
+    chunk_count: int
+
+
+class SourceListResponse(BaseModel):
+    sources: list[IngestedSource]
+
+
+class SourceDeleteRequest(BaseModel):
+    url: str = Field(..., min_length=1)
+
+
+class SourceDeleteResponse(BaseModel):
+    deleted: bool

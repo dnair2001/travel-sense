@@ -54,3 +54,26 @@ export type ActivityFeedbackResponse = {
   saved: boolean;
   message: string;
 };
+
+export type SourceType = "blog" | "youtube";
+
+export type SourceIngestResponse = {
+  url: string;
+  source_type: SourceType;
+  title: string;
+  chunks_indexed: number;
+  city: string;
+};
+
+export type IngestedSource = {
+  url: string;
+  title: string;
+  source_type: SourceType;
+  city: string;
+  ingested_at: string;
+  chunk_count: number;
+};
+
+export type SourceListResponse = {
+  sources: IngestedSource[];
+};
