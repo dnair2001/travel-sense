@@ -47,6 +47,22 @@ def test_rebuild_vectorstore_indexes_source_documents(tmp_path):
 def test_retrieve_documents_filters_to_destination_city(tmp_path):
     service = make_service(tmp_path)
     service.rebuild_vectorstore()
+    service.vectorstore.add_documents(
+        [
+            Document(
+                page_content="A user-uploaded Paris cafe guide.",
+                metadata={
+                    "title": "My Paris Cafe Guide",
+                    "city": "paris",
+                    "category": "blog",
+                    "scope": "destination",
+                    "owner_scope": "user",
+                    "user_id": TEST_USER,
+                },
+            )
+        ],
+        ids=[f"{TEST_USER}-paris-0"],
+    )
     trip = TripRequest(
         destination="Paris",
         days=2,
@@ -62,17 +78,32 @@ def test_retrieve_documents_filters_to_destination_city(tmp_path):
     assert documents
     destination_documents = [doc for doc in documents if doc.metadata["scope"] == "destination"]
     personal_documents = [doc for doc in documents if doc.metadata["scope"] == "personal"]
-    assert {doc.metadata["city"] for doc in destination_documents} == {"paris"}
-    assert {doc.metadata["title"] for doc in destination_documents} == {
-        "Paris Art Cafes",
-        "Paris Food Logistics",
-    }
+    # Only the user's own uploaded Paris content comes back — the seeded
+    # "Paris Art Cafes"/"Paris Food Logistics" public guides are excluded.
+    assert {doc.metadata["title"] for doc in destination_documents} == {"My Paris Cafe Guide"}
+    assert not any(doc.metadata.get("owner_scope") == "public" for doc in documents)
     assert personal_documents
 
 
 def test_plan_trip_demo_uses_retrieved_sources(tmp_path):
     service = make_service(tmp_path)
     service.rebuild_vectorstore()
+    service.vectorstore.add_documents(
+        [
+            Document(
+                page_content="A user-uploaded Tokyo food crawl guide.",
+                metadata={
+                    "title": "My Tokyo Food Crawl",
+                    "city": "tokyo",
+                    "category": "blog",
+                    "scope": "destination",
+                    "owner_scope": "user",
+                    "user_id": TEST_USER,
+                },
+            )
+        ],
+        ids=[f"{TEST_USER}-tokyo-0"],
+    )
     trip = TripRequest(
         destination="Tokyo",
         days=3,
@@ -135,6 +166,22 @@ def test_plan_trip_rejects_unsupported_destination(tmp_path):
 def test_refine_trip_demo_preserves_days_and_applies_instruction(tmp_path):
     service = make_service(tmp_path)
     service.rebuild_vectorstore()
+    service.vectorstore.add_documents(
+        [
+            Document(
+                page_content="A user-uploaded NYC neighborhoods guide.",
+                metadata={
+                    "title": "My NYC Neighborhoods Guide",
+                    "city": "nyc",
+                    "category": "blog",
+                    "scope": "destination",
+                    "owner_scope": "user",
+                    "user_id": TEST_USER,
+                },
+            )
+        ],
+        ids=[f"{TEST_USER}-nyc-0"],
+    )
     trip = TripRequest(
         destination="NYC",
         days=1,
@@ -262,7 +309,7 @@ def test_retrieve_documents_scopes_private_docs_to_owning_user(tmp_path):
     assert "User A Lisbon Notes" not in user_b_titles
 
 
-def test_public_seed_content_visible_to_all_users(tmp_path):
+def test_public_seed_content_is_excluded_from_retrieval(tmp_path):
     service = make_service(tmp_path)
     service.rebuild_vectorstore()
     trip = TripRequest(
@@ -275,9 +322,28 @@ def test_public_seed_content_visible_to_all_users(tmp_path):
         constraints="",
     )
 
-    documents = service.retrieve_documents(trip, "a-brand-new-user-with-no-data")
+    documents = service.retrieve_documents(trip, TEST_USER)
 
-    assert any(doc.metadata.get("owner_scope") == "public" for doc in documents)
+    assert not any(doc.metadata.get("owner_scope") == "public" for doc in documents)
+
+
+def test_plan_trip_rejects_destination_with_only_seed_content(tmp_path):
+    # Paris has seeded public guide docs but this user hasn't uploaded
+    # anything for it, so it should behave like an unsupported destination.
+    service = make_service(tmp_path)
+    service.rebuild_vectorstore()
+    trip = TripRequest(
+        destination="Paris",
+        days=1,
+        budget="mid-range",
+        interests=["food"],
+        travel_style="solo",
+        pace="balanced",
+        constraints="",
+    )
+
+    with pytest.raises(UnsupportedDestinationError):
+        service.plan_trip(trip, TEST_USER)
 
 
 def test_rebuild_vectorstore_does_not_delete_user_documents(tmp_path):

@@ -163,21 +163,14 @@ class TravelRAGService:
             ]
             if part
         )
+        # Retrieval is scoped entirely to what this user has uploaded — the
+        # pre-seeded Paris/Tokyo/NYC guide content (owner_scope "public") is
+        # intentionally excluded so every destination, including those 3,
+        # relies only on the user's own ingested sources.
         city_key = self.normalize_city_key(trip.destination)
-        public_destination_documents = self.vectorstore.similarity_search(
-            query,
-            k=6,
-            filter={
-                "$and": [
-                    {"scope": "destination"},
-                    {"city": city_key},
-                    {"owner_scope": "public"},
-                ]
-            },
-        )
         user_destination_documents = self.vectorstore.similarity_search(
             query,
-            k=6,
+            k=8,
             filter={
                 "$and": [
                     {"scope": "destination"},
@@ -198,9 +191,7 @@ class TravelRAGService:
                 ]
             },
         )
-        return self._dedupe_documents(
-            public_destination_documents + user_destination_documents + user_personal_documents
-        )
+        return self._dedupe_documents(user_destination_documents + user_personal_documents)
 
     def plan_trip(self, trip: TripRequest, user_id: str) -> TripResponse:
         documents = self.retrieve_documents(trip, user_id)
