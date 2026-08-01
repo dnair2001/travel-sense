@@ -126,12 +126,6 @@ h3 {
   line-height: 1.6;
 }
 
-.memory-summary {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
 /* ---------- Planner layout ---------- */
 
 .planner-panel {
@@ -233,20 +227,6 @@ h3 {
 .results-panel textarea:focus {
   border-color: rgba(14, 124, 134, 0.7);
   box-shadow: 0 0 0 4px rgba(14, 124, 134, 0.13);
-}
-
-.memory-summary {
-  padding: 2px 0 4px;
-}
-
-.memory-summary span {
-  border-radius: 999px;
-  padding: 7px 12px;
-  background: var(--surface-muted);
-  border: 1px solid var(--line);
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 600;
 }
 
 /* ---------- Buttons ---------- */

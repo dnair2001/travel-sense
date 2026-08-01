@@ -72,13 +72,6 @@ export function TripForm({
           />
         </label>
 
-        <div className="memory-summary">
-          <span>Budget from memory</span>
-          <span>Pace from memory</span>
-          <span>Food notes from memory</span>
-          <span>Saved places weighted</span>
-        </div>
-
         <button className="primary-button" disabled={isLoading} type="submit">
           {isLoading ? "Generating plan..." : "Generate itinerary"}
         </button>
