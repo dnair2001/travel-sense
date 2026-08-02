@@ -113,7 +113,9 @@ class TravelRAGService:
         # personal notes which are also loaded here). Never wipe the whole
         # collection: that would destroy every user's ingested URL sources,
         # which live in the same collection tagged owner_scope "user".
-        self.vectorstore._collection.delete(where={"scope": "destination"})
+        self.vectorstore._collection.delete(
+            where={"$and": [{"scope": "destination"}, {"owner_scope": "public"}]}
+        )
         if self.settings.legacy_personal_owner_user_id is not None:
             self.vectorstore._collection.delete(
                 where={
@@ -180,6 +182,21 @@ class TravelRAGService:
                 ]
             },
         )
+        # Dedicated lookup so this user's "saved places" notes for this exact
+        # city are always represented, rather than competing for a generic
+        # top-k slot against every other personal note they have.
+        user_saved_place_documents = self.vectorstore.similarity_search(
+            query,
+            k=3,
+            filter={
+                "$and": [
+                    {"scope": "personal"},
+                    {"owner_scope": "user"},
+                    {"user_id": user_id},
+                    {"category": f"saved places {city_key}"},
+                ]
+            },
+        )
         user_personal_documents = self.vectorstore.similarity_search(
             query,
             k=6,
@@ -191,7 +208,9 @@ class TravelRAGService:
                 ]
             },
         )
-        return self._dedupe_documents(user_destination_documents + user_personal_documents)
+        return self._dedupe_documents(
+            user_destination_documents + user_saved_place_documents + user_personal_documents
+        )
 
     def plan_trip(self, trip: TripRequest, user_id: str) -> TripResponse:
         documents = self.retrieve_documents(trip, user_id)

@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { KeyboardEvent, useEffect, useState } from "react";
 
 import { useAuth } from "../lib/AuthContext";
 import { requestJson } from "../lib/api";
@@ -36,8 +36,7 @@ export function SourceIngestForm({ destination }: { destination: string }) {
     };
   }, [destination, user, status]);
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function handleSubmit() {
     if (!url.trim() || !destination.trim()) {
       return;
     }
@@ -54,6 +53,16 @@ export function SourceIngestForm({ destination }: { destination: string }) {
       setError(submitError instanceof Error ? submitError.message : "Failed to add source.");
     } finally {
       setIsSubmitting(false);
+    }
+  }
+
+  function handleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "Enter") {
+      // This widget lives inside the outer trip-planning <form>, so it can't
+      // be its own nested <form> (invalid HTML). Handle Enter manually here
+      // so it adds a source instead of submitting the outer form.
+      event.preventDefault();
+      void handleSubmit();
     }
   }
 
@@ -75,18 +84,24 @@ export function SourceIngestForm({ destination }: { destination: string }) {
         <p>Submit links about {destination.trim() || "your destination"} to ground the itinerary in.</p>
       </div>
 
-      <form className="source-ingest-form" onSubmit={handleSubmit}>
+      <div className="source-ingest-form">
         <input
           disabled={!destination.trim()}
           onChange={(event) => setUrl(event.target.value)}
+          onKeyDown={handleKeyDown}
           placeholder="https://example.com/tokyo-food-guide"
           type="url"
           value={url}
         />
-        <button className="primary-button" disabled={isSubmitting || !destination.trim() || !url.trim()} type="submit">
+        <button
+          className="primary-button"
+          disabled={isSubmitting || !destination.trim() || !url.trim()}
+          onClick={() => void handleSubmit()}
+          type="button"
+        >
           {isSubmitting ? "Adding..." : "Add source"}
         </button>
-      </form>
+      </div>
 
       {status ? <p className="status-text">{status}</p> : null}
       {error ? <p className="error-text">{error}</p> : null}

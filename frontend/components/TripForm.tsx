@@ -23,8 +23,8 @@ export function TripForm({
   error: string | null;
 }) {
   return (
-    <div className="step-shell">
-      <form className="planner-panel" onSubmit={onSubmit}>
+    <form className="step-shell" onSubmit={onSubmit}>
+      <div className="planner-panel">
         <div className="panel-heading">
           <p className="eyebrow">Trip brief</p>
           <h2>Plan a trip</h2>
@@ -71,15 +71,15 @@ export function TripForm({
             placeholder="Low walking, vegetarian-friendly, no early mornings, near transit"
           />
         </label>
-
-        <button className="primary-button" disabled={isLoading} type="submit">
-          {isLoading ? "Generating plan..." : "Generate itinerary"}
-        </button>
-
-        {error ? <p className="error-text">{error}</p> : null}
-      </form>
+      </div>
 
       <SourceIngestForm destination={trip.destination} />
-    </div>
+
+      <button className="primary-button" disabled={isLoading} type="submit">
+        {isLoading ? "Generating plan..." : "Generate itinerary"}
+      </button>
+
+      {error ? <p className="error-text">{error}</p> : null}
+    </form>
   );
 }
