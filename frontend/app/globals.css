@@ -542,39 +542,22 @@ h3 {
 /* ---------- Directions ---------- */
 
 .directions-leg {
-  margin-left: 40px;
+  margin: 4px 0 0 40px;
   padding-left: 10px;
   border-left: 2px dashed var(--line-strong);
-}
-
-.directions-leg-summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  width: 100%;
-  border: 0;
-  background: none;
-  padding: 4px 0;
   color: var(--lav);
-  cursor: pointer;
   font-size: 12px;
   font-weight: 700;
 }
 
-.directions-leg-summary span:last-child {
-  color: var(--muted);
-  font-weight: 600;
+.google-maps-link {
+  justify-self: start;
+  margin-top: 2px;
+  color: var(--accent);
+  font-size: 12.5px;
+  font-weight: 700;
   text-decoration: underline;
   text-underline-offset: 2px;
-}
-
-.directions-steps {
-  margin: 4px 0 6px;
-  padding-left: 18px;
-  color: var(--ink-soft);
-  font-size: 12px;
-  line-height: 1.6;
 }
 
 .mode-pill {

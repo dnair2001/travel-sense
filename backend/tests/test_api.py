@@ -112,12 +112,13 @@ class FakeRoutingService:
         return {
             "geometry": {"type": "LineString", "coordinates": [[c[1], c[0]] for c in coordinates]},
             "distance_m": 1000.0,
-            "duration_s": 600.0,
+            "walking_duration_s": 714.3,
+            "driving_duration_s": 120.0,
             "legs": [
                 {
                     "distance_m": 1000.0,
-                    "duration_s": 600.0,
-                    "steps": [{"instruction": "Head out on Main St", "distance_m": 1000.0}],
+                    "walking_duration_s": 714.3,
+                    "driving_duration_s": 120.0,
                 }
             ],
         }
@@ -441,8 +442,9 @@ def test_directions_route_returns_route(client):
     assert response.status_code == 200
     body = response.json()
     assert body["distance_m"] == 1000.0
+    assert body["driving_duration_s"] == 120.0
     assert len(body["legs"]) == 1
-    assert body["legs"][0]["steps"][0]["instruction"] == "Head out on Main St"
+    assert body["legs"][0]["driving_duration_s"] == 120.0
 
 
 def test_directions_route_requires_authentication(unauthenticated_client):

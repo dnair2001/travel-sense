@@ -111,24 +111,19 @@ class GeocodeResponse(BaseModel):
 
 
 class DirectionsRequest(BaseModel):
-    # Ordered (lat, lng) pairs to route through, in visiting order. Always
-    # walking directions -- see RoutingService for why.
+    # Ordered (lat, lng) pairs to route through, in visiting order.
     coordinates: list[tuple[float, float]] = Field(..., min_length=2)
-
-
-class RouteStep(BaseModel):
-    instruction: str
-    distance_m: float
 
 
 class RouteLeg(BaseModel):
     distance_m: float
-    duration_s: float
-    steps: list[RouteStep]
+    walking_duration_s: float
+    driving_duration_s: float
 
 
 class RouteResponse(BaseModel):
     geometry: dict
     distance_m: float
-    duration_s: float
+    walking_duration_s: float
+    driving_duration_s: float
     legs: list[RouteLeg]

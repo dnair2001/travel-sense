@@ -343,6 +343,8 @@ function ItineraryMap({ destination, day }: { destination: string; day: DayPlan 
     );
   }
 
+  const mapsUrl = stops.length >= 2 ? buildGoogleMapsUrl(stops) : null;
+
   return (
     <div className="itinerary-map">
       <div className="map-canvas">
@@ -353,6 +355,11 @@ function ItineraryMap({ destination, day }: { destination: string; day: DayPlan 
         <div>
           <span>Day {day.day}</span>
           <strong>{day.theme}</strong>
+          {mapsUrl ? (
+            <a className="google-maps-link" href={mapsUrl} target="_blank" rel="noopener noreferrer">
+              Open full day in Google Maps ↗
+            </a>
+          ) : null}
         </div>
         <ul>
           {stops.map((stop, index) => (
@@ -364,36 +371,41 @@ function ItineraryMap({ destination, day }: { destination: string; day: DayPlan 
                   <p>{stop.detail ?? "Mapped from itinerary context"}</p>
                 </div>
               </div>
-              {route?.legs[index] ? <DirectionsLeg leg={route.legs[index]} /> : null}
+              {route?.legs[index] ? <RouteLegSummary leg={route.legs[index]} /> : null}
             </li>
           ))}
         </ul>
-        {routeLoading ? <p className="status-text">Finding walking directions…</p> : null}
+        {routeLoading ? <p className="status-text">Finding directions…</p> : null}
       </div>
     </div>
   );
 }
 
-function DirectionsLeg({ leg }: { leg: RouteResponse["legs"][number] }) {
-  const [expanded, setExpanded] = useState(false);
+// Deep link into Google Maps' multi-stop directions, in visiting order.
+// No API key needed -- this is the documented consumer URL scheme, not the
+// paid Directions API. Lets the rider pick walking/transit/driving live
+// with Google's own (real, always up to date) routing for each mode.
+function buildGoogleMapsUrl(stops: MapStop[]): string {
+  const points = stops.map((stop) => `${stop.lat},${stop.lng}`);
+  const waypoints = points.slice(1, -1);
+  const params = new URLSearchParams({
+    api: "1",
+    origin: points[0],
+    destination: points[points.length - 1],
+    travelmode: "walking",
+  });
+  if (waypoints.length) {
+    params.set("waypoints", waypoints.join("|"));
+  }
+  return `https://www.google.com/maps/dir/?${params.toString()}`;
+}
 
+function RouteLegSummary({ leg }: { leg: RouteResponse["legs"][number] }) {
   return (
-    <div className="directions-leg">
-      <button className="directions-leg-summary" onClick={() => setExpanded((current) => !current)} type="button">
-        <span>↳ {formatDistance(leg.distance_m)} · {formatDuration(leg.duration_s)} walk</span>
-        <span>{expanded ? "Hide steps" : "Show steps"}</span>
-      </button>
-      {expanded ? (
-        <ol className="directions-steps">
-          {leg.steps.map((step, index) => (
-            <li key={index}>
-              {step.instruction}
-              {step.distance_m > 0 ? <span> · {formatDistance(step.distance_m)}</span> : null}
-            </li>
-          ))}
-        </ol>
-      ) : null}
-    </div>
+    <p className="directions-leg">
+      ↳ {formatDistance(leg.distance_m)} · Walk {formatDuration(leg.walking_duration_s)} · Drive{" "}
+      {formatDuration(leg.driving_duration_s)}
+    </p>
   );
 }
 
