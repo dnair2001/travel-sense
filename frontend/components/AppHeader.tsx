@@ -10,7 +10,7 @@ export function AppHeader() {
       <p className="brand">
         Travel<span className="title-accent">Sense</span>
       </p>
-      <div className="account-bar">
+      <div className="account-bar no-print">
         <span>{user?.email ?? user?.displayName ?? "Signed in"}</span>
         <button className="secondary-button" onClick={() => void signOut()} type="button">
           Sign out

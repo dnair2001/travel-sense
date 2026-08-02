@@ -163,6 +163,19 @@ h3 {
   align-items: flex-start;
 }
 
+.results-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.results-heading-actions .secondary-button {
+  margin-top: 0;
+  min-height: auto;
+  padding: 9px 16px;
+  font-size: 13px;
+}
+
 /* ---------- Form controls ---------- */
 
 .field-row {
@@ -1190,5 +1203,48 @@ h3 {
 
   .map-shell {
     padding: 14px;
+  }
+}
+
+/* ---------- Print (PDF export) ---------- */
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+
+  html {
+    background: #fff;
+  }
+
+  body {
+    color: #000;
+  }
+
+  .page-shell {
+    width: 100%;
+    padding: 0;
+  }
+
+  .planner-panel,
+  .results-panel {
+    box-shadow: none;
+    backdrop-filter: none;
+    background: #fff;
+    border-color: #ccc;
+  }
+
+  .summary-card {
+    background: #fff;
+    border-color: #ccc;
+  }
+
+  .day-card {
+    box-shadow: none;
+    break-inside: avoid;
+  }
+
+  .source-card {
+    box-shadow: none;
   }
 }

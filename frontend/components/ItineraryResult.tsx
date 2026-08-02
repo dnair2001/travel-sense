@@ -112,7 +112,7 @@ export function ItineraryResult({
 
   return (
     <div className="result-shell">
-      <button className="step-back" onClick={onBack} type="button">
+      <button className="step-back no-print" onClick={onBack} type="button">
         ← Edit trip details
       </button>
 
@@ -123,7 +123,12 @@ export function ItineraryResult({
             <h2>Itinerary</h2>
             <p>Each activity is grounded in retrieved destination and personal context.</p>
           </div>
-          <span className="mode-pill">{result.generation_mode === "llm" ? "LLM-backed" : "Demo fallback"}</span>
+          <div className="results-heading-actions no-print">
+            <span className="mode-pill">{result.generation_mode === "llm" ? "LLM-backed" : "Demo fallback"}</span>
+            <button className="secondary-button" onClick={() => window.print()} type="button">
+              Download PDF
+            </button>
+          </div>
         </div>
 
         <div className="summary-card">
@@ -131,7 +136,7 @@ export function ItineraryResult({
           <p className="summary-text">{result.summary}</p>
         </div>
 
-        <div className="map-shell">
+        <div className="map-shell no-print">
           <div className="map-shell-header">
             <div>
               <p className="eyebrow">Day map</p>
@@ -162,7 +167,7 @@ export function ItineraryResult({
         </div>
       </section>
 
-      <section className="results-panel">
+      <section className="results-panel no-print">
         <div className="panel-heading">
           <p className="eyebrow">Refinement</p>
           <h2>Edit the plan</h2>
@@ -241,7 +246,7 @@ function DayCard({
             </div>
             <p>{activity.reason}</p>
             <small>{activity.source_titles.join(", ")}</small>
-            <div className="feedback-row" aria-label={`Feedback for ${activity.title}`}>
+            <div className="feedback-row no-print" aria-label={`Feedback for ${activity.title}`}>
               {feedbackOptions.map((option) => {
                 const key = getFeedbackKey(day.day, activity.title, option.rating);
                 return (
