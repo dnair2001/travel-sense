@@ -2,7 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.auth import get_current_user
-from app.dependencies import get_ingestion_service, get_rag_service
+from app.dependencies import get_geocoding_service, get_ingestion_service, get_rag_service
 from app.main import app
 from app.schemas import Activity, DayPlan, IngestedSource, SourceSnippet, TripResponse
 from app.services.ingestion import IngestionError
@@ -97,10 +97,18 @@ class FakeIngestionService:
         assert user_id == TEST_UID
 
 
+class FakeGeocodingService:
+    def geocode(self, query):
+        if query == "Nowhere":
+            return None
+        return (35.6762, 139.6503, f"{query} (geocoded)")
+
+
 @pytest.fixture
 def client():
     app.dependency_overrides[get_rag_service] = lambda: FakeRAGService()
     app.dependency_overrides[get_ingestion_service] = lambda: FakeIngestionService()
+    app.dependency_overrides[get_geocoding_service] = lambda: FakeGeocodingService()
     app.dependency_overrides[get_current_user] = lambda: TEST_UID
     try:
         yield TestClient(app)
@@ -112,6 +120,7 @@ def client():
 def unauthenticated_client():
     app.dependency_overrides[get_rag_service] = lambda: FakeRAGService()
     app.dependency_overrides[get_ingestion_service] = lambda: FakeIngestionService()
+    app.dependency_overrides[get_geocoding_service] = lambda: FakeGeocodingService()
     try:
         yield TestClient(app)
     finally:
@@ -376,5 +385,27 @@ def test_delete_source_route(client):
 
 def test_sources_route_requires_authentication(unauthenticated_client):
     response = unauthenticated_client.get("/api/sources")
+
+    assert response.status_code == 401
+
+
+def test_geocode_route_returns_coordinates(client):
+    response = client.get("/api/geocode", params={"query": "Tsukiji Outer Market, Tokyo"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["lat"] == 35.6762
+    assert body["lng"] == 139.6503
+    assert body["label"] == "Tsukiji Outer Market, Tokyo (geocoded)"
+
+
+def test_geocode_route_returns_404_when_not_found(client):
+    response = client.get("/api/geocode", params={"query": "Nowhere"})
+
+    assert response.status_code == 404
+
+
+def test_geocode_route_requires_authentication(unauthenticated_client):
+    response = unauthenticated_client.get("/api/geocode", params={"query": "Tokyo"})
 
     assert response.status_code == 401

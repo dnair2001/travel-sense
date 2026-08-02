@@ -77,3 +77,9 @@ export type IngestedSource = {
 export type SourceListResponse = {
   sources: IngestedSource[];
 };
+
+export type GeocodeResult = {
+  lat: number;
+  lng: number;
+  label: string;
+};

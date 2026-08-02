@@ -1,6 +1,7 @@
 from functools import lru_cache
 
 from app.config import get_settings
+from app.services.geocoding import GeocodingService
 from app.services.ingestion import SourceIngestionService
 from app.services.rag import TravelRAGService
 
@@ -13,3 +14,8 @@ def get_rag_service() -> TravelRAGService:
 @lru_cache
 def get_ingestion_service() -> SourceIngestionService:
     return SourceIngestionService(get_rag_service())
+
+
+@lru_cache
+def get_geocoding_service() -> GeocodingService:
+    return GeocodingService()

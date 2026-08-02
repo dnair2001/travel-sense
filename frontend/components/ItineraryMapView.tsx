@@ -45,15 +45,13 @@ function FitBounds({ stops }: { stops: MapStop[] }) {
 }
 
 export default function ItineraryMapView({ stops }: { stops: MapStop[] }) {
-  const center: [number, number] = stops.length
-    ? [stops[0].lat, stops[0].lng]
-    : [35.6812, 139.7671];
+  const center: [number, number] = stops.length ? [stops[0].lat, stops[0].lng] : [20, 0];
   const line = stops.map((stop) => [stop.lat, stop.lng] as [number, number]);
 
   return (
     <MapContainer
       center={center}
-      zoom={13}
+      zoom={stops.length ? 13 : 2}
       scrollWheelZoom={false}
       className="leaflet-map"
       style={{ height: "100%", width: "100%" }}
@@ -63,7 +61,7 @@ export default function ItineraryMapView({ stops }: { stops: MapStop[] }) {
         url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
       />
       {line.length > 1 ? (
-        <Polyline positions={line} pathOptions={{ color: "#1f6f54", weight: 4, opacity: 0.85, dashArray: "8 8" }} />
+        <Polyline positions={line} pathOptions={{ color: "#0e7c86", weight: 4, opacity: 0.85, dashArray: "8 8" }} />
       ) : null}
       {stops.map((stop) => (
         <Marker key={`${stop.label}-${stop.index}`} position={[stop.lat, stop.lng]} icon={numberedIcon(stop.index)}>

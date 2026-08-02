@@ -1,9 +1,11 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
-import { Activity, DayPlan, FeedbackRating, TripResponse } from "../lib/types";
+import { useAuth } from "../lib/AuthContext";
+import { requestJson } from "../lib/api";
+import { Activity, DayPlan, FeedbackRating, GeocodeResult, TripResponse } from "../lib/types";
 import type { MapStop } from "./ItineraryMapView";
 
 const ItineraryMapView = dynamic(() => import("./ItineraryMapView"), {
@@ -18,71 +20,6 @@ const feedbackOptions: { rating: FeedbackRating; label: string }[] = [
   { rating: "too_much_walking", label: "Too much walking" },
   { rating: "too_touristy", label: "Too touristy" },
 ];
-
-type MapPoint = {
-  label: string;
-  lat: number;
-  lng: number;
-  aliases: string[];
-};
-
-// Pins only exist for these 3 seed destinations. Any other free-text
-// destination falls back to a "map not available yet" message rather than
-// crashing — real geocoding is future work.
-const CITY_MAPS: Record<string, { label: string; points: MapPoint[] }> = {
-  tokyo: {
-    label: "Tokyo",
-    points: [
-      { label: "Tsukiji Outer Market", lat: 35.6655, lng: 139.7707, aliases: ["tsukiji outer market", "tsukiji"] },
-      { label: "Shinjuku", lat: 35.6938, lng: 139.7036, aliases: ["shinjuku"] },
-      { label: "Omoide Yokocho", lat: 35.6932, lng: 139.6997, aliases: ["omoide yokocho"] },
-      { label: "Daikanyama T-Site", lat: 35.6485, lng: 139.6989, aliases: ["daikanyama t-site", "daikanyama"] },
-      { label: "Yanaka Ginza", lat: 35.7276, lng: 139.7665, aliases: ["yanaka ginza", "yanaka"] },
-      { label: "Kichijoji", lat: 35.7032, lng: 139.5797, aliases: ["kichijoji"] },
-      { label: "Ueno", lat: 35.7141, lng: 139.7774, aliases: ["ueno"] },
-      { label: "Asakusa", lat: 35.7119, lng: 139.7967, aliases: ["asakusa"] },
-      { label: "Senso-ji", lat: 35.7148, lng: 139.7967, aliases: ["senso-ji", "sensoji"] },
-      { label: "Akihabara", lat: 35.6984, lng: 139.7731, aliases: ["akihabara"] },
-      { label: "Shibuya", lat: 35.6595, lng: 139.7005, aliases: ["shibuya"] },
-      { label: "Ameya-Yokocho", lat: 35.7100, lng: 139.7745, aliases: ["ameya-yokocho", "ameya yokocho"] },
-    ],
-  },
-  paris: {
-    label: "Paris",
-    points: [
-      { label: "Rue Cler", lat: 48.8566, lng: 2.3050, aliases: ["rue cler"] },
-      { label: "Le Marais", lat: 48.8575, lng: 2.3610, aliases: ["marais"] },
-      { label: "Louvre", lat: 48.8606, lng: 2.3376, aliases: ["louvre"] },
-      { label: "Tuileries", lat: 48.8634, lng: 2.3275, aliases: ["tuileries"] },
-      { label: "Saint-Germain-des-Prés", lat: 48.8539, lng: 2.3338, aliases: ["saint-germain-des-pres", "saint germain des pres"] },
-      { label: "Montmartre", lat: 48.8867, lng: 2.3431, aliases: ["montmartre"] },
-      { label: "Latin Quarter", lat: 48.8499, lng: 2.3470, aliases: ["latin quarter"] },
-      { label: "Île de la Cité", lat: 48.8550, lng: 2.3470, aliases: ["ile de la cite", "île de la cité", "cite"] },
-      { label: "Seine", lat: 48.8566, lng: 2.3522, aliases: ["seine"] },
-    ],
-  },
-  "new york city": {
-    label: "New York City",
-    points: [
-      { label: "Central Park", lat: 40.7829, lng: -73.9654, aliases: ["central park"] },
-      { label: "Museum Mile", lat: 40.7790, lng: -73.9630, aliases: ["museum mile"] },
-      { label: "Upper West Side", lat: 40.7870, lng: -73.9754, aliases: ["upper west side"] },
-      { label: "Chelsea Market", lat: 40.7424, lng: -74.0061, aliases: ["chelsea market"] },
-      { label: "SoHo", lat: 40.7233, lng: -74.0030, aliases: ["soho"] },
-      { label: "Greenwich Village", lat: 40.7336, lng: -74.0027, aliases: ["greenwich village"] },
-      { label: "Times Square", lat: 40.7580, lng: -73.9855, aliases: ["times square"] },
-      { label: "Grand Central", lat: 40.7527, lng: -73.9772, aliases: ["grand central"] },
-      { label: "DUMBO", lat: 40.7033, lng: -73.9881, aliases: ["dumbo"] },
-      { label: "Brooklyn Heights", lat: 40.6959, lng: -73.9936, aliases: ["brooklyn heights"] },
-    ],
-  },
-};
-
-function getCityMap(destination: string): { label: string; points: MapPoint[] } | undefined {
-  const normalized = destination.trim().toLowerCase();
-  const aliased = normalized === "nyc" || normalized === "new york" ? "new york city" : normalized;
-  return CITY_MAPS[aliased];
-}
 
 export function ItineraryResult({
   destination,
@@ -140,8 +77,8 @@ export function ItineraryResult({
           <div className="map-shell-header">
             <div>
               <p className="eyebrow">Day map</p>
-              <h3>{getCityMap(destination)?.label ?? destination}</h3>
-              <p>Numbered stops are inferred from the itinerary titles and notes.</p>
+              <h3>{destination}</h3>
+              <p>Stops are located from the itinerary's activity titles.</p>
             </div>
             <div className="day-tabs" role="tablist" aria-label="Select itinerary day">
               {result.itinerary.map((day) => (
@@ -268,32 +205,94 @@ function DayCard({
   );
 }
 
+// Geocodes each activity in the active day (title + destination) via the
+// backend's Nominatim proxy, cached per query string so re-visiting a day
+// tab doesn't re-fetch. Activities that don't resolve to a place just don't
+// get a pin, rather than blocking the whole map.
+function useDayStops(destination: string, day: DayPlan | null): { stops: MapStop[]; loading: boolean } {
+  const { user } = useAuth();
+  const [stops, setStops] = useState<MapStop[]>([]);
+  const [loading, setLoading] = useState(false);
+  const cacheRef = useRef<Map<string, GeocodeResult | null>>(new Map());
+
+  useEffect(() => {
+    if (!day || !destination.trim()) {
+      setStops([]);
+      setLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setLoading(true);
+
+    async function resolve(activity: Activity): Promise<{ label: string; detail: string; result: GeocodeResult } | null> {
+      const query = `${activity.title}, ${destination}`;
+      const cache = cacheRef.current;
+      if (cache.has(query)) {
+        const cached = cache.get(query);
+        return cached ? { label: activity.title, detail: activity.reason, result: cached } : null;
+      }
+      try {
+        const geocoded = await requestJson<GeocodeResult>(`/api/geocode?query=${encodeURIComponent(query)}`, user);
+        cache.set(query, geocoded);
+        return { label: activity.title, detail: activity.reason, result: geocoded };
+      } catch {
+        cache.set(query, null);
+        return null;
+      }
+    }
+
+    Promise.all(day.activities.map(resolve)).then((resolved) => {
+      if (cancelled) {
+        return;
+      }
+      const nextStops: MapStop[] = resolved
+        .filter((item): item is NonNullable<typeof item> => item !== null)
+        .map((item, index) => ({
+          label: item.label,
+          lat: item.result.lat,
+          lng: item.result.lng,
+          index: index + 1,
+          detail: item.detail,
+        }));
+      setStops(nextStops);
+      setLoading(false);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [destination, day, user]);
+
+  return { stops, loading };
+}
+
 function ItineraryMap({ destination, day }: { destination: string; day: DayPlan }) {
-  if (!getCityMap(destination)) {
+  const { stops, loading } = useDayStops(destination, day);
+
+  if (loading && stops.length === 0) {
+    return (
+      <div className="itinerary-map">
+        <div className="map-loading">Locating stops…</div>
+      </div>
+    );
+  }
+
+  if (!loading && stops.length === 0) {
     return (
       <div className="itinerary-map">
         <div className="empty-state">
-          <span>Map not available yet</span>
-          <p>We don&apos;t have mapped stops for {destination || "this destination"} yet.</p>
+          <span>No mappable stops</span>
+          <p>We couldn&apos;t find map locations for this day&apos;s activities.</p>
         </div>
       </div>
     );
   }
 
-  const stops = getStopsForDay(destination, day);
-  const orderedStops = stops.length ? stops : getFallbackStops(destination, day);
-  const mapStops: MapStop[] = orderedStops.map((stop, index) => ({
-    label: stop.label,
-    lat: stop.lat,
-    lng: stop.lng,
-    index: index + 1,
-    detail: findActivityForStop(day, stop.label)?.title ?? undefined,
-  }));
-
   return (
     <div className="itinerary-map">
       <div className="map-canvas">
-        <ItineraryMapView stops={mapStops} />
+        <ItineraryMapView stops={stops} />
       </div>
 
       <div className="map-legend">
@@ -302,12 +301,12 @@ function ItineraryMap({ destination, day }: { destination: string; day: DayPlan 
           <strong>{day.theme}</strong>
         </div>
         <ul>
-          {orderedStops.map((stop, index) => (
-            <li key={`${stop.label}-${index}`}>
-              <span>{index + 1}</span>
+          {stops.map((stop) => (
+            <li key={`${stop.label}-${stop.index}`}>
+              <span>{stop.index}</span>
               <div>
                 <strong>{stop.label}</strong>
-                <p>{findActivityForStop(day, stop.label)?.title ?? "Mapped from itinerary context"}</p>
+                <p>{stop.detail ?? "Mapped from itinerary context"}</p>
               </div>
             </li>
           ))}
@@ -315,56 +314,6 @@ function ItineraryMap({ destination, day }: { destination: string; day: DayPlan 
       </div>
     </div>
   );
-}
-
-function getStopsForDay(destination: string, day: DayPlan): MapPoint[] {
-  const catalog = getCityMap(destination)?.points ?? [];
-  const matched = day.activities.flatMap((activity) => {
-    const text = normalizeText(`${activity.title} ${activity.reason} ${activity.source_titles.join(" ")}`);
-    return catalog.filter((point) => point.aliases.some((alias) => text.includes(alias)));
-  });
-  return dedupeStops(matched);
-}
-
-function getFallbackStops(destination: string, day: DayPlan): MapPoint[] {
-  const catalog = getCityMap(destination)?.points ?? [];
-  if (!catalog.length) {
-    return [];
-  }
-  const fallback = [catalog[0], catalog[1] ?? catalog[0], catalog[2] ?? catalog[0]].filter(
-    Boolean,
-  ) as MapPoint[];
-  return fallback.slice(0, Math.max(day.activities.length, 1));
-}
-
-function findActivityForStop(day: DayPlan, stopLabel: string): Activity | null {
-  const normalizedStop = normalizeText(stopLabel);
-  return (
-    day.activities.find((activity) =>
-      normalizeText(`${activity.title} ${activity.reason} ${activity.source_titles.join(" ")}`).includes(normalizedStop),
-    ) ?? null
-  );
-}
-
-function dedupeStops(stops: MapPoint[]): MapPoint[] {
-  const seen = new Set<string>();
-  return stops.filter((stop) => {
-    if (seen.has(stop.label)) {
-      return false;
-    }
-    seen.add(stop.label);
-    return true;
-  });
-}
-
-function normalizeText(value: string): string {
-  return value
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
 }
 
 function getFeedbackKey(day: number, title: string, rating: FeedbackRating): string {

@@ -102,3 +102,9 @@ class SourceDeleteRequest(BaseModel):
 
 class SourceDeleteResponse(BaseModel):
     deleted: bool
+
+
+class GeocodeResponse(BaseModel):
+    lat: float
+    lng: float
+    label: str
