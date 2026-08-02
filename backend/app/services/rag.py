@@ -170,9 +170,17 @@ class TravelRAGService:
         # intentionally excluded so every destination, including those 3,
         # relies only on the user's own ingested sources.
         city_key = self.normalize_city_key(trip.destination)
-        user_destination_documents = self.vectorstore.similarity_search(
+        # MMR (not plain top-k similarity) so a multi-day trip gets chunks
+        # spread across the source material instead of a handful of
+        # near-duplicate passages about whichever single topic matches the
+        # query best -- otherwise the model runs out of specific, named
+        # venues after day 1 and starts filling later days with generic
+        # filler like "Wander the neighborhood".
+        user_destination_documents = self.vectorstore.max_marginal_relevance_search(
             query,
-            k=8,
+            k=20,
+            fetch_k=60,
+            lambda_mult=0.5,
             filter={
                 "$and": [
                     {"scope": "destination"},
@@ -254,6 +262,11 @@ class TravelRAGService:
                     "system",
                     "You are TravelSense, an itinerary planner. Use only the provided context. "
                     "Do not invent attractions or claims that are unsupported by the sources. "
+                    "Every activity title must name one specific, real place from the context -- a "
+                    "restaurant, landmark, market, museum, park, or other named venue -- never a vague "
+                    "description like 'Explore the neighborhood' or 'Wander downtown'. If the context "
+                    "doesn't have enough distinct venues to fill every day, reuse the best-covered "
+                    "specific places across multiple days rather than inventing or generalizing. "
                     "Return a JSON object with keys summary and itinerary. "
                     "itinerary must be a list of days, and each day must include day, theme, and activities. "
                     "Each activity must include period, title, reason, and source_titles.",
@@ -291,6 +304,11 @@ class TravelRAGService:
                     "system",
                     "You are revising an existing itinerary. Preserve the overall trip structure when possible, "
                     "but apply the user's refinement request. Use only the provided source context. "
+                    "Every activity title must name one specific, real place from the context -- a "
+                    "restaurant, landmark, market, museum, park, or other named venue -- never a vague "
+                    "description like 'Explore the neighborhood' or 'Wander downtown'. If the context "
+                    "doesn't have enough distinct venues to fill every day, reuse the best-covered "
+                    "specific places across multiple days rather than inventing or generalizing. "
                     "Return a JSON object with keys summary and itinerary. "
                     "Each itinerary day must include day, theme, and activities. "
                     "Each activity must include period, title, reason, and source_titles.",

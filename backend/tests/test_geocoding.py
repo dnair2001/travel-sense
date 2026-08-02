@@ -13,6 +13,8 @@ from app.services.geocoding import GeocodingService, clean_geocode_query
         ("Wander through Le Marais, Paris", "Le Marais, Paris"),
         ("Tsukiji Outer Market, Tokyo", "Tsukiji Outer Market, Tokyo"),
         ("Flexible evening option", "Flexible evening option"),
+        ("Imperial Palace's East Gardens, Tokyo", "Imperial Palace East Gardens, Tokyo"),
+        ("Visit the Queen's Gardens, London", "Queen Gardens, London"),
     ],
 )
 def test_clean_geocode_query_strips_leading_verb_phrase(query, expected):
@@ -28,6 +30,8 @@ def test_geocode_falls_back_to_trailing_location_phrase(monkeypatch):
     def fake_get(*args, **kwargs):
         query = kwargs["params"]["q"]
         calls.append(query)
+        if query == "Lisbon":
+            return FakeHttpResponse([{"lat": "38.7", "lon": "-9.1", "boundingbox": ["38.6", "38.8", "-9.3", "-9.0"]}])
         if query == "Dinner in Bairro Alto, Lisbon":
             return FakeHttpResponse([])
         return FakeHttpResponse([{"lat": "38.71", "lon": "-9.14", "display_name": "Bairro Alto, Lisbon"}])
@@ -37,7 +41,55 @@ def test_geocode_falls_back_to_trailing_location_phrase(monkeypatch):
     result = service.geocode("Dinner in Bairro Alto, Lisbon")
 
     assert result == (38.71, -9.14, "Bairro Alto, Lisbon")
-    assert calls == ["Dinner in Bairro Alto, Lisbon", "Bairro Alto, Lisbon"]
+    # Resolves the destination's bounding box first (from the text after the
+    # last comma), then searches the full query, then the fallback phrase.
+    assert calls == ["Lisbon", "Dinner in Bairro Alto, Lisbon", "Bairro Alto, Lisbon"]
+
+
+def test_geocode_restricts_search_to_destination_viewbox(monkeypatch):
+    service = GeocodingService()
+    monkeypatch.setattr("app.services.geocoding.GeocodingService._throttle", lambda self: None)
+
+    captured_params = []
+
+    def fake_get(*args, **kwargs):
+        params = kwargs["params"]
+        captured_params.append(params)
+        if params["q"] == "Tokyo":
+            return FakeHttpResponse(
+                [{"lat": "35.68", "lon": "139.65", "boundingbox": ["35.5", "35.9", "139.5", "139.9"]}]
+            )
+        return FakeHttpResponse([{"lat": "35.66", "lon": "139.7", "display_name": "Some Place, Tokyo"}])
+
+    monkeypatch.setattr("app.services.geocoding.httpx.get", fake_get)
+
+    service.geocode("Korean BBQ Restaurant, Tokyo")
+
+    viewbox_lookup, activity_lookup = captured_params
+    assert viewbox_lookup["q"] == "Tokyo"
+    assert "viewbox" not in viewbox_lookup
+    assert activity_lookup["q"] == "Korean BBQ Restaurant, Tokyo"
+    assert activity_lookup["bounded"] == 1
+    # Padded by 1 degree on every side of the resolved Tokyo bounding box.
+    assert activity_lookup["viewbox"] == "138.5,36.9,140.9,34.5"
+
+
+def test_geocode_skips_viewbox_when_query_has_no_destination_hint(monkeypatch):
+    service = GeocodingService()
+    monkeypatch.setattr("app.services.geocoding.GeocodingService._throttle", lambda self: None)
+
+    captured_params = []
+
+    def fake_get(*args, **kwargs):
+        captured_params.append(kwargs["params"])
+        return FakeHttpResponse([{"lat": "35.68", "lon": "139.65", "display_name": "Tokyo"}])
+
+    monkeypatch.setattr("app.services.geocoding.httpx.get", fake_get)
+
+    service.geocode("Tokyo")
+
+    assert len(captured_params) == 1
+    assert "viewbox" not in captured_params[0]
 
 
 class FakeHttpResponse:
