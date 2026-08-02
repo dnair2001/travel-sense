@@ -32,12 +32,28 @@ _VIEWBOX_PADDING_DEGREES = 1.0
 # covering central Tokyo without reaching that far.
 _ANY_VENUE_PADDING_DEGREES = 0.15
 
+# Some itinerary activities are genuine day trips well outside the city
+# itself -- e.g. "Grutas de Tolantongo" from Mexico City is ~150-170km away,
+# farther than even the primary search's day-trip padding above, and its
+# name doesn't combine with the city suffix into a query Nominatim can match
+# at all (confirmed: "Tolantongo, Mexico City" returns zero results even
+# completely unbounded, while the bare name resolves immediately). Tried
+# only after the tight any-venue-in-city search above has failed, using the
+# same non-venue-class filtering, so a nearby false-positive road or business
+# is still preferred over a same-named place on the other side of the world.
+_DAY_TRIP_VENUE_PADDING_DEGREES = 2.5
+
 
 def _pad_box(raw_bbox: Optional[Tuple[float, float, float, float]], padding: float) -> Optional[ViewBox]:
     if not raw_bbox:
         return None
     min_lat, max_lat, min_lon, max_lon = raw_bbox
     return (min_lon - padding, max_lat + padding, max_lon + padding, min_lat - padding)
+
+
+def _point_viewbox(point: Tuple[float, float], padding: float) -> ViewBox:
+    lat, lon = point
+    return (lon - padding, lat + padding, lon + padding, lat - padding)
 
 
 # A relative distance measure for ranking nearby candidates, not real
@@ -212,14 +228,15 @@ class GeocodingService:
         # fallback is centered on the destination's resolved point instead.
         if destination:
             anchor = destination[1]
-            lat, lon = anchor
-            tight_viewbox = (
-                lon - _ANY_VENUE_PADDING_DEGREES,
-                lat + _ANY_VENUE_PADDING_DEGREES,
-                lon + _ANY_VENUE_PADDING_DEGREES,
-                lat - _ANY_VENUE_PADDING_DEGREES,
-            )
-            return self._find_any_venue_in_city(_venue_name(normalized), tight_viewbox, anchor)
+            venue_name = _venue_name(normalized)
+
+            tight_viewbox = _point_viewbox(anchor, _ANY_VENUE_PADDING_DEGREES)
+            result = self._find_any_venue_in_city(venue_name, tight_viewbox, anchor)
+            if result is not None:
+                return result
+
+            day_trip_viewbox = _point_viewbox(anchor, _DAY_TRIP_VENUE_PADDING_DEGREES)
+            return self._find_any_venue_in_city(venue_name, day_trip_viewbox, anchor)
         return None
 
     # Cached per destination string, not per padding, so the day-trip-sized
