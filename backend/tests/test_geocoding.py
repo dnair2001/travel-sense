@@ -63,6 +63,53 @@ def test_geocode_strips_generic_descriptor_before_searching(monkeypatch):
     assert "Shinjuku District, Tokyo" not in calls
 
 
+def test_geocode_falls_back_to_dropping_leading_word(monkeypatch):
+    service = GeocodingService()
+    monkeypatch.setattr("app.services.geocoding.GeocodingService._throttle", lambda self: None)
+
+    calls = []
+
+    def fake_get(*args, **kwargs):
+        query = kwargs["params"]["q"]
+        calls.append(query)
+        # "Odaiba Rainbow Bridge, Tokyo" gets zero results on real Nominatim;
+        # only the bare landmark name resolves.
+        if query == "Rainbow Bridge, Tokyo":
+            return FakeHttpResponse([{"lat": "35.64", "lon": "139.76", "display_name": "Rainbow Bridge, Tokyo, Japan"}])
+        return FakeHttpResponse([])
+
+    monkeypatch.setattr("app.services.geocoding.httpx.get", fake_get)
+
+    result = service.geocode("Odaiba Rainbow Bridge, Tokyo")
+
+    assert result == (35.64, 139.76, "Rainbow Bridge, Tokyo, Japan")
+    assert "Odaiba Rainbow Bridge, Tokyo" in calls
+    assert "Rainbow Bridge, Tokyo" in calls
+
+
+def test_geocode_does_not_drop_leading_word_from_single_word_venue(monkeypatch):
+    service = GeocodingService()
+    monkeypatch.setattr("app.services.geocoding.GeocodingService._throttle", lambda self: None)
+
+    calls = []
+
+    def fake_get(*args, **kwargs):
+        calls.append(kwargs["params"]["q"])
+        return FakeHttpResponse([])
+
+    monkeypatch.setattr("app.services.geocoding.httpx.get", fake_get)
+
+    # "Yayoi-ken" is a single-word (hyphenated) venue name with no fixed
+    # single address -- there's nothing to drop, and it should just fail
+    # rather than searching a blank/nonsensical query.
+    result = service.geocode("Yayoi-ken, Tokyo")
+
+    assert result is None
+    # Only the destination viewbox lookup and the one real search happen --
+    # no blank/dangling query from trying to drop a word that isn't there.
+    assert calls == ["Tokyo", "Yayoi-ken, Tokyo"]
+
+
 def test_geocode_falls_back_to_trailing_location_phrase(monkeypatch):
     service = GeocodingService()
     monkeypatch.setattr("app.services.geocoding.GeocodingService._throttle", lambda self: None)

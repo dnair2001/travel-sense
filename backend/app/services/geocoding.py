@@ -93,10 +93,27 @@ def _destination_hint(query: str) -> Optional[str]:
     return query.rsplit(",", 1)[-1].strip() or None
 
 
+# A leading "<Area> <Landmark>" compound sometimes returns zero results as
+# one phrase even though the landmark alone matches fine (confirmed: "Odaiba
+# Rainbow Bridge, Tokyo" fails; "Rainbow Bridge, Tokyo" doesn't). Drops just
+# the first word of the venue phrase as one extra attempt -- not a cascading
+# drop of every leading word, to keep this from ever discarding so much of
+# the name that a match becomes a coincidence rather than the right place.
+def _drop_leading_word(query: str) -> Optional[str]:
+    venue, _, rest = query.partition(",")
+    words = venue.split()
+    if len(words) < 2:
+        return None
+    shortened = " ".join(words[1:])
+    candidate = f"{shortened},{rest}" if rest else shortened
+    return candidate.strip()
+
+
 # Attempts to try in order: the cleaned query, its trailing "at/in/near"
-# phrase, and a generic-descriptor-stripped version of each -- deduplicated
-# and order-preserving, since later, cheaper rewrites should only fire once
-# the more specific attempts before them have failed.
+# phrase, a generic-descriptor-stripped version of each, and a version with
+# the venue phrase's leading word dropped -- deduplicated and
+# order-preserving, since later, cheaper rewrites should only fire once the
+# more specific attempts before them have failed.
 def _candidate_queries(normalized: str) -> List[str]:
     candidates = [normalized]
 
@@ -108,6 +125,10 @@ def _candidate_queries(normalized: str) -> List[str]:
         stripped = strip_generic_descriptor(base)
         if stripped and stripped not in candidates:
             candidates.append(stripped)
+
+    dropped = _drop_leading_word(normalized)
+    if dropped and dropped not in candidates:
+        candidates.append(dropped)
 
     return candidates
 
