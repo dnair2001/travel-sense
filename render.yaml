@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: travel-sense-api
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.7"
+      # Set after the frontend is deployed (comma-separated origins, no trailing slash).
+      - key: CORS_ORIGINS
+        sync: false
+      # Optional: add to enable real LLM generation + OpenAI embeddings.
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: FIREBASE_PROJECT_ID
+        sync: false
+      # Point this at a mounted Render Secret File containing the Firebase
+      # service-account JSON (Dashboard > Environment > Secret Files).
+      - key: FIREBASE_SERVICE_ACCOUNT_PATH
+        sync: false
