@@ -117,8 +117,16 @@ export function ItineraryResult({
           placeholder="Make day 2 more food-focused"
         />
         <button className="secondary-button" disabled={isRefining} onClick={onRefine} type="button">
-          {isRefining ? "Updating..." : "Refine itinerary"}
+          {isRefining ? (
+            <span className="button-loading">
+              <span className="spinner" aria-hidden="true" />
+              Updating...
+            </span>
+          ) : (
+            "Refine itinerary"
+          )}
         </button>
+        {isRefining ? <p className="status-text">Reworking your plan — this usually takes 10–20 seconds.</p> : null}
         {error ? <p className="error-text">{error}</p> : null}
       </section>
 

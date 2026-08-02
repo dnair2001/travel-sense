@@ -297,6 +297,28 @@ h3 {
   box-shadow: 0 14px 28px -14px rgba(24, 36, 31, 0.7);
 }
 
+.button-loading {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.spinner {
+  width: 15px;
+  height: 15px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 700ms linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /* ---------- Summary + map ---------- */
 
 .summary-card {
@@ -873,7 +895,7 @@ h3 {
 }
 
 .status-text {
-  margin: 0;
+  margin: 12px 0 0;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-sm);
   padding: 13px 15px;

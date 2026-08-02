@@ -76,8 +76,21 @@ export function TripForm({
       <SourceIngestForm destination={trip.destination} />
 
       <button className="primary-button" disabled={isLoading} type="submit">
-        {isLoading ? "Generating plan..." : "Generate itinerary"}
+        {isLoading ? (
+          <span className="button-loading">
+            <span className="spinner" aria-hidden="true" />
+            Generating plan...
+          </span>
+        ) : (
+          "Generate itinerary"
+        )}
       </button>
+
+      {isLoading ? (
+        <p className="status-text">
+          Grounding your plan in the sources you added — this usually takes 10–20 seconds.
+        </p>
+      ) : null}
 
       {error ? <p className="error-text">{error}</p> : null}
     </form>
