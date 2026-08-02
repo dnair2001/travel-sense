@@ -40,6 +40,12 @@ def _pad_box(raw_bbox: Optional[Tuple[float, float, float, float]], padding: flo
     return (min_lon - padding, max_lat + padding, max_lon + padding, min_lat - padding)
 
 
+# A relative distance measure for ranking nearby candidates, not real
+# distance -- fine at the city scale this is used at, no need for haversine.
+def _distance_squared(point: Tuple[float, float], anchor: Tuple[float, float]) -> float:
+    return (point[0] - anchor[0]) ** 2 + (point[1] - anchor[1]) ** 2
+
+
 # LLM-generated activity titles are usually phrased as instructions ("Explore
 # Tsukiji Outer Market", "Visit the Louvre"), and Nominatim's free-text search
 # matches those noticeably worse than the bare place name -- stripping the
@@ -205,14 +211,15 @@ class GeocodingService:
         # Prefecture legally includes them) -- so the tight any-venue
         # fallback is centered on the destination's resolved point instead.
         if destination:
-            lat, lon = destination[1]
+            anchor = destination[1]
+            lat, lon = anchor
             tight_viewbox = (
                 lon - _ANY_VENUE_PADDING_DEGREES,
                 lat + _ANY_VENUE_PADDING_DEGREES,
                 lon + _ANY_VENUE_PADDING_DEGREES,
                 lat - _ANY_VENUE_PADDING_DEGREES,
             )
-            return self._find_any_venue_in_city(_venue_name(normalized), tight_viewbox)
+            return self._find_any_venue_in_city(_venue_name(normalized), tight_viewbox, anchor)
         return None
 
     # Cached per destination string, not per padding, so the day-trip-sized
@@ -244,7 +251,9 @@ class GeocodingService:
             self._cache[cache_key] = result
             return result
 
-    def _find_any_venue_in_city(self, venue_name: str, viewbox: ViewBox) -> Optional[GeocodeResult]:
+    def _find_any_venue_in_city(
+        self, venue_name: str, viewbox: ViewBox, anchor: Tuple[float, float]
+    ) -> Optional[GeocodeResult]:
         cache_key = f"any:{venue_name}|{viewbox}"
         if cache_key in self._cache:
             return self._cache[cache_key]
@@ -253,11 +262,11 @@ class GeocodingService:
             if cache_key in self._cache:
                 return self._cache[cache_key]
             self._throttle()
-            result = self._fetch_any(venue_name, viewbox)
+            result = self._fetch_any(venue_name, viewbox, anchor)
             self._cache[cache_key] = result
             return result
 
-    def _fetch_any(self, query: str, viewbox: ViewBox) -> Optional[GeocodeResult]:
+    def _fetch_any(self, query: str, viewbox: ViewBox, anchor: Tuple[float, float]) -> Optional[GeocodeResult]:
         params = {
             "q": query,
             "format": "json",
@@ -278,14 +287,23 @@ class GeocodingService:
         except (httpx.HTTPError, ValueError):
             return None
 
+        venues = []
         for candidate in results:
             if candidate.get("class") in _NON_VENUE_CLASSES or candidate.get("type") in _NON_VENUE_TYPES:
                 continue
             try:
-                return float(candidate["lat"]), float(candidate["lon"]), candidate.get("display_name", query)
+                venues.append((float(candidate["lat"]), float(candidate["lon"]), candidate.get("display_name", query)))
             except (KeyError, TypeError, ValueError):
                 continue
-        return None
+
+        if not venues:
+            return None
+
+        # Nominatim's default order here is relevance/importance, not
+        # distance -- without this, "any real branch" can pick one much
+        # farther from the destination's center than another candidate it
+        # already returned in the same response.
+        return min(venues, key=lambda venue: _distance_squared((venue[0], venue[1]), anchor))
 
     def _throttle(self) -> None:
         elapsed = time.monotonic() - self._last_request_time

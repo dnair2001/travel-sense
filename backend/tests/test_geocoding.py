@@ -178,6 +178,47 @@ def test_geocode_falls_back_to_any_venue_in_city_for_chain_names(monkeypatch):
     assert result == (35.65, 139.7, "Yayoi-ken, Yokohama, Japan")
 
 
+def test_geocode_any_venue_fallback_picks_nearest_candidate(monkeypatch):
+    service = GeocodingService()
+    monkeypatch.setattr("app.services.geocoding.GeocodingService._throttle", lambda self: None)
+
+    def fake_get(*args, **kwargs):
+        params = kwargs["params"]
+        if params["q"] == "Tokyo":
+            # Destination anchor point: (35.68, 139.65).
+            return FakeHttpResponse(
+                [{"lat": "35.68", "lon": "139.65", "boundingbox": ["35.5", "35.9", "139.5", "139.9"]}]
+            )
+        if params.get("limit") == 10:
+            # Real Nominatim doesn't return these in distance order -- the
+            # nearer branch is ranked second here, and should still win.
+            return FakeHttpResponse(
+                [
+                    {
+                        "lat": "35.9",
+                        "lon": "139.9",
+                        "display_name": "Far branch",
+                        "class": "amenity",
+                        "type": "restaurant",
+                    },
+                    {
+                        "lat": "35.681",
+                        "lon": "139.651",
+                        "display_name": "Near branch",
+                        "class": "amenity",
+                        "type": "restaurant",
+                    },
+                ]
+            )
+        return FakeHttpResponse([])
+
+    monkeypatch.setattr("app.services.geocoding.httpx.get", fake_get)
+
+    result = service.geocode("Yayoi-ken, Tokyo")
+
+    assert result == (35.681, 139.651, "Near branch")
+
+
 def test_geocode_restricts_search_to_destination_viewbox(monkeypatch):
     service = GeocodingService()
     monkeypatch.setattr("app.services.geocoding.GeocodingService._throttle", lambda self: None)
