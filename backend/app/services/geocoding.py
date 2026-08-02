@@ -20,6 +20,26 @@ ViewBox = Tuple[float, float, float, float]
 # while still excluding a same-named place on the other side of the world.
 _VIEWBOX_PADDING_DEGREES = 1.0
 
+# Tighter padding used only for the "any venue in the city" chain-name
+# fallback below, applied around the destination's resolved *point* (not its
+# administrative bounding box -- that can be wildly oversized, e.g.
+# Nominatim's box for "Tokyo" spans all of Japan since Tokyo Prefecture
+# legally includes islands ~1,000km away). That search has no specific name
+# text pulling it toward the right place, so anything looser than a tight
+# radius risks a same-named branch in a genuinely different city (confirmed:
+# with the day-trip-sized padding above, "Yayoi-ken" bounded to "Tokyo"
+# returned a branch in Shizuoka). ~0.15 degrees is roughly 16km, comfortably
+# covering central Tokyo without reaching that far.
+_ANY_VENUE_PADDING_DEGREES = 0.15
+
+
+def _pad_box(raw_bbox: Optional[Tuple[float, float, float, float]], padding: float) -> Optional[ViewBox]:
+    if not raw_bbox:
+        return None
+    min_lat, max_lat, min_lon, max_lon = raw_bbox
+    return (min_lon - padding, max_lat + padding, max_lon + padding, min_lat - padding)
+
+
 # LLM-generated activity titles are usually phrased as instructions ("Explore
 # Tsukiji Outer Market", "Visit the Louvre"), and Nominatim's free-text search
 # matches those noticeably worse than the bare place name -- stripping the
@@ -93,6 +113,28 @@ def _destination_hint(query: str) -> Optional[str]:
     return query.rsplit(",", 1)[-1].strip() or None
 
 
+def _venue_name(query: str) -> str:
+    return query.split(",", 1)[0].strip()
+
+
+# A chain name (e.g. "Yayoi-ken") has many real branches but no single
+# canonical address, so every attempt above legitimately finds nothing. As a
+# last resort, search just the venue name (dropping the city suffix, since
+# combining them can itself fail the same way "Odaiba Rainbow Bridge" does)
+# bounded to the destination and take the first result that's an actual
+# point of interest -- these class/type values are Nominatim matches on a
+# shared substring of the name that are clearly never "the chain restaurant"
+# (a park, a road, a pharmacy, a clinic), confirmed against real results for
+# "Yayoi-ken" in Tokyo.
+_NON_VENUE_CLASSES = {"highway", "boundary", "natural", "waterway", "railway", "leisure"}
+_NON_VENUE_TYPES = {
+    "pharmacy", "doctors", "clinic", "hospital", "dentist", "bank", "atm",
+    "toilets", "parking", "fuel", "post_office", "police", "fire_station",
+    "townhall", "school", "kindergarten", "university", "college",
+    "veterinary", "social_facility", "nursing_home",
+}
+
+
 # A leading "<Area> <Landmark>" compound sometimes returns zero results as
 # one phrase even though the landmark alone matches fine (confirmed: "Odaiba
 # Rainbow Bridge, Tokyo" fails; "Rainbow Bridge, Tokyo" doesn't). Drops just
@@ -133,10 +175,13 @@ def _candidate_queries(normalized: str) -> List[str]:
     return candidates
 
 
+DestinationInfo = Tuple[Tuple[float, float, float, float], Tuple[float, float]]  # (raw bbox, point)
+
+
 class GeocodingService:
     def __init__(self) -> None:
         self._cache: Dict[str, Optional[GeocodeResult]] = {}
-        self._viewbox_cache: Dict[str, Optional[ViewBox]] = {}
+        self._destination_cache: Dict[str, Optional[DestinationInfo]] = {}
         self._last_request_time: float = 0.0
         self._lock = threading.Lock()
 
@@ -145,27 +190,46 @@ class GeocodingService:
         if not normalized:
             return None
 
-        viewbox = self._resolve_viewbox(_destination_hint(query))
+        destination = self._resolve_destination(_destination_hint(query))
+        raw_bbox = destination[0] if destination else None
+        viewbox = _pad_box(raw_bbox, _VIEWBOX_PADDING_DEGREES)
 
         for candidate in _candidate_queries(normalized):
             result = self._geocode_single(candidate, viewbox)
             if result is not None:
                 return result
+
+        # A city's administrative bounding box can be wildly oversized for
+        # this purpose (confirmed: Nominatim's box for "Tokyo" spans the
+        # whole of Japan, including islands ~1,000km away, since Tokyo
+        # Prefecture legally includes them) -- so the tight any-venue
+        # fallback is centered on the destination's resolved point instead.
+        if destination:
+            lat, lon = destination[1]
+            tight_viewbox = (
+                lon - _ANY_VENUE_PADDING_DEGREES,
+                lat + _ANY_VENUE_PADDING_DEGREES,
+                lon + _ANY_VENUE_PADDING_DEGREES,
+                lat - _ANY_VENUE_PADDING_DEGREES,
+            )
+            return self._find_any_venue_in_city(_venue_name(normalized), tight_viewbox)
         return None
 
-    def _resolve_viewbox(self, near: Optional[str]) -> Optional[ViewBox]:
+    # Cached per destination string, not per padding, so the day-trip-sized
+    # viewbox and the tight any-venue viewbox share one Nominatim lookup.
+    def _resolve_destination(self, near: Optional[str]) -> Optional[DestinationInfo]:
         if not near:
             return None
-        if near in self._viewbox_cache:
-            return self._viewbox_cache[near]
+        if near in self._destination_cache:
+            return self._destination_cache[near]
 
         with self._lock:
-            if near in self._viewbox_cache:
-                return self._viewbox_cache[near]
+            if near in self._destination_cache:
+                return self._destination_cache[near]
             self._throttle()
-            box = self._fetch_bounding_box(near)
-            self._viewbox_cache[near] = box
-            return box
+            info = self._fetch_destination_info(near)
+            self._destination_cache[near] = info
+            return info
 
     def _geocode_single(self, normalized: str, viewbox: Optional[ViewBox] = None) -> Optional[GeocodeResult]:
         cache_key = f"{normalized}|{viewbox}"
@@ -179,6 +243,49 @@ class GeocodingService:
             result = self._fetch(normalized, viewbox)
             self._cache[cache_key] = result
             return result
+
+    def _find_any_venue_in_city(self, venue_name: str, viewbox: ViewBox) -> Optional[GeocodeResult]:
+        cache_key = f"any:{venue_name}|{viewbox}"
+        if cache_key in self._cache:
+            return self._cache[cache_key]
+
+        with self._lock:
+            if cache_key in self._cache:
+                return self._cache[cache_key]
+            self._throttle()
+            result = self._fetch_any(venue_name, viewbox)
+            self._cache[cache_key] = result
+            return result
+
+    def _fetch_any(self, query: str, viewbox: ViewBox) -> Optional[GeocodeResult]:
+        params = {
+            "q": query,
+            "format": "json",
+            "limit": 10,
+            "viewbox": ",".join(str(coordinate) for coordinate in viewbox),
+            "bounded": 1,
+        }
+
+        try:
+            response = httpx.get(
+                NOMINATIM_URL,
+                params=params,
+                headers={"User-Agent": USER_AGENT},
+                timeout=10.0,
+            )
+            response.raise_for_status()
+            results = response.json()
+        except (httpx.HTTPError, ValueError):
+            return None
+
+        for candidate in results:
+            if candidate.get("class") in _NON_VENUE_CLASSES or candidate.get("type") in _NON_VENUE_TYPES:
+                continue
+            try:
+                return float(candidate["lat"]), float(candidate["lon"]), candidate.get("display_name", query)
+            except (KeyError, TypeError, ValueError):
+                continue
+        return None
 
     def _throttle(self) -> None:
         elapsed = time.monotonic() - self._last_request_time
@@ -213,7 +320,7 @@ class GeocodingService:
         except (KeyError, TypeError, ValueError):
             return None
 
-    def _fetch_bounding_box(self, query: str) -> Optional[ViewBox]:
+    def _fetch_destination_info(self, query: str) -> Optional[DestinationInfo]:
         try:
             response = httpx.get(
                 NOMINATIM_URL,
@@ -229,14 +336,11 @@ class GeocodingService:
         if not results:
             return None
 
+        first = results[0]
         try:
-            min_lat, max_lat, min_lon, max_lon = (float(value) for value in results[0]["boundingbox"])
+            lat, lon = float(first["lat"]), float(first["lon"])
+            min_lat, max_lat, min_lon, max_lon = (float(value) for value in first["boundingbox"])
         except (KeyError, TypeError, ValueError):
             return None
 
-        return (
-            min_lon - _VIEWBOX_PADDING_DEGREES,
-            max_lat + _VIEWBOX_PADDING_DEGREES,
-            max_lon + _VIEWBOX_PADDING_DEGREES,
-            min_lat - _VIEWBOX_PADDING_DEGREES,
-        )
+        return (min_lat, max_lat, min_lon, max_lon), (lat, lon)

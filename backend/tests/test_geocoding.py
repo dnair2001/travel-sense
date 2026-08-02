@@ -135,6 +135,49 @@ def test_geocode_falls_back_to_trailing_location_phrase(monkeypatch):
     assert calls == ["Lisbon", "Dinner in Bairro Alto, Lisbon", "Bairro Alto, Lisbon"]
 
 
+def test_geocode_falls_back_to_any_venue_in_city_for_chain_names(monkeypatch):
+    service = GeocodingService()
+    monkeypatch.setattr("app.services.geocoding.GeocodingService._throttle", lambda self: None)
+
+    def fake_get(*args, **kwargs):
+        params = kwargs["params"]
+        if params["q"] == "Tokyo":
+            return FakeHttpResponse(
+                [{"lat": "35.68", "lon": "139.65", "boundingbox": ["35.5", "35.9", "139.5", "139.9"]}]
+            )
+        if params.get("limit") == 10:
+            # Broad, unrestricted-by-name search: noise (a park, a pharmacy)
+            # ranked ahead of the one real restaurant branch, mirroring what
+            # real Nominatim returns for "Yayoi-ken" bounded to Tokyo.
+            return FakeHttpResponse(
+                [
+                    {"lat": "35.9", "lon": "139.5", "display_name": "Yayoi Park", "class": "leisure", "type": "park"},
+                    {
+                        "lat": "35.5",
+                        "lon": "139.6",
+                        "display_name": "Yayoi Pharmacy",
+                        "class": "amenity",
+                        "type": "pharmacy",
+                    },
+                    {
+                        "lat": "35.65",
+                        "lon": "139.7",
+                        "display_name": "Yayoi-ken, Yokohama, Japan",
+                        "class": "amenity",
+                        "type": "restaurant",
+                    },
+                ]
+            )
+        # The exact-name search (limit=1) never finds this chain by name alone.
+        return FakeHttpResponse([])
+
+    monkeypatch.setattr("app.services.geocoding.httpx.get", fake_get)
+
+    result = service.geocode("Yayoi-ken, Tokyo")
+
+    assert result == (35.65, 139.7, "Yayoi-ken, Yokohama, Japan")
+
+
 def test_geocode_restricts_search_to_destination_viewbox(monkeypatch):
     service = GeocodingService()
     monkeypatch.setattr("app.services.geocoding.GeocodingService._throttle", lambda self: None)
