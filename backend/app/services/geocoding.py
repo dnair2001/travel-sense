@@ -1,7 +1,7 @@
 import re
 import threading
 import time
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import httpx
 
@@ -40,9 +40,30 @@ _LEADING_VERB_PHRASE = re.compile(
 _POSSESSIVE = re.compile(r"(\w)['’]s\b")
 
 
+# LLM-generated titles often describe a neighborhood as "<Name>
+# District/Neighborhood/Area/Ward" -- Nominatim's free-text search frequently
+# returns zero results for the padded phrase, or worse, silently matches an
+# unrelated same-named place elsewhere (confirmed: "Ginza District, Tokyo"
+# resolved to Little Tokyo, Los Angeles; "Shibuya Area, Tokyo" matched a
+# smoking area inside a random Shibuya building instead of the neighborhood
+# itself) even though the bare neighborhood name matches correctly. Applied
+# unconditionally rather than only as a fallback, since a spurious low-
+# quality match -- not just a zero-result failure -- can otherwise mask the
+# better candidate. "Quarter"/"Zone" are deliberately excluded since a
+# handful of real place names genuinely end in one of these words (e.g. the
+# French Quarter).
+_TRAILING_GENERIC_DESCRIPTOR = re.compile(r"\s+(district|neighbo(?:u)?rhood|area|ward)\b", re.IGNORECASE)
+
+
+def strip_generic_descriptor(query: str) -> Optional[str]:
+    stripped = _TRAILING_GENERIC_DESCRIPTOR.sub("", query).strip()
+    return stripped if stripped and stripped != query else None
+
+
 def clean_geocode_query(query: str) -> str:
     cleaned = _LEADING_VERB_PHRASE.sub("", query.strip(), count=1).strip()
     cleaned = _POSSESSIVE.sub(r"\1", cleaned)
+    cleaned = _TRAILING_GENERIC_DESCRIPTOR.sub("", cleaned).strip()
     return cleaned or query.strip()
 
 
@@ -72,6 +93,25 @@ def _destination_hint(query: str) -> Optional[str]:
     return query.rsplit(",", 1)[-1].strip() or None
 
 
+# Attempts to try in order: the cleaned query, its trailing "at/in/near"
+# phrase, and a generic-descriptor-stripped version of each -- deduplicated
+# and order-preserving, since later, cheaper rewrites should only fire once
+# the more specific attempts before them have failed.
+def _candidate_queries(normalized: str) -> List[str]:
+    candidates = [normalized]
+
+    fallback = fallback_geocode_query(normalized)
+    if fallback and fallback not in candidates:
+        candidates.append(fallback)
+
+    for base in list(candidates):
+        stripped = strip_generic_descriptor(base)
+        if stripped and stripped not in candidates:
+            candidates.append(stripped)
+
+    return candidates
+
+
 class GeocodingService:
     def __init__(self) -> None:
         self._cache: Dict[str, Optional[GeocodeResult]] = {}
@@ -86,13 +126,10 @@ class GeocodingService:
 
         viewbox = self._resolve_viewbox(_destination_hint(query))
 
-        result = self._geocode_single(normalized, viewbox)
-        if result is not None:
-            return result
-
-        fallback = fallback_geocode_query(normalized)
-        if fallback and fallback != normalized:
-            return self._geocode_single(fallback, viewbox)
+        for candidate in _candidate_queries(normalized):
+            result = self._geocode_single(candidate, viewbox)
+            if result is not None:
+                return result
         return None
 
     def _resolve_viewbox(self, near: Optional[str]) -> Optional[ViewBox]:

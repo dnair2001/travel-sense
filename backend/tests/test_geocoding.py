@@ -1,6 +1,6 @@
 import pytest
 
-from app.services.geocoding import GeocodingService, clean_geocode_query
+from app.services.geocoding import GeocodingService, clean_geocode_query, strip_generic_descriptor
 
 
 @pytest.mark.parametrize(
@@ -15,10 +15,52 @@ from app.services.geocoding import GeocodingService, clean_geocode_query
         ("Flexible evening option", "Flexible evening option"),
         ("Imperial Palace's East Gardens, Tokyo", "Imperial Palace East Gardens, Tokyo"),
         ("Visit the Queen's Gardens, London", "Queen Gardens, London"),
+        ("Shinjuku District, Tokyo", "Shinjuku, Tokyo"),
+        ("Asakusa Neighborhood, Tokyo", "Asakusa, Tokyo"),
+        ("French Quarter, New Orleans", "French Quarter, New Orleans"),
     ],
 )
 def test_clean_geocode_query_strips_leading_verb_phrase(query, expected):
     assert clean_geocode_query(query) == expected
+
+
+@pytest.mark.parametrize(
+    "query,expected",
+    [
+        ("Shinjuku District, Tokyo", "Shinjuku, Tokyo"),
+        ("Asakusa Neighborhood, Tokyo", "Asakusa, Tokyo"),
+        ("Shibuya Area, Tokyo", "Shibuya, Tokyo"),
+        ("Roppongi Ward, Tokyo", "Roppongi, Tokyo"),
+        ("French Quarter, New Orleans", None),  # "Quarter" deliberately not stripped
+        ("Shinjuku, Tokyo", None),  # nothing to strip
+    ],
+)
+def test_strip_generic_descriptor(query, expected):
+    assert strip_generic_descriptor(query) == expected
+
+
+def test_geocode_strips_generic_descriptor_before_searching(monkeypatch):
+    service = GeocodingService()
+    monkeypatch.setattr("app.services.geocoding.GeocodingService._throttle", lambda self: None)
+
+    calls = []
+
+    def fake_get(*args, **kwargs):
+        query = kwargs["params"]["q"]
+        calls.append(query)
+        # The raw "District" phrase is never searched -- if it were, this
+        # fake would return nothing and the test would fail, since real
+        # Nominatim behaves the same way for this exact query.
+        if query == "Shinjuku, Tokyo":
+            return FakeHttpResponse([{"lat": "35.69", "lon": "139.70", "display_name": "Shinjuku, Tokyo, Japan"}])
+        return FakeHttpResponse([])
+
+    monkeypatch.setattr("app.services.geocoding.httpx.get", fake_get)
+
+    result = service.geocode("Shinjuku District, Tokyo")
+
+    assert result == (35.69, 139.70, "Shinjuku, Tokyo, Japan")
+    assert "Shinjuku District, Tokyo" not in calls
 
 
 def test_geocode_falls_back_to_trailing_location_phrase(monkeypatch):
