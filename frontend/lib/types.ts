@@ -38,23 +38,6 @@ export type TripResponse = {
   generation_mode: "llm" | "demo";
 };
 
-export type FeedbackRating = "love" | "not_for_me" | "too_expensive" | "too_much_walking" | "too_touristy";
-
-export type ActivityFeedbackRequest = {
-  destination: string;
-  day: number;
-  period: Activity["period"];
-  title: string;
-  rating: FeedbackRating;
-  note: string;
-  source_titles: string[];
-};
-
-export type ActivityFeedbackResponse = {
-  saved: boolean;
-  message: string;
-};
-
 export type SourceType = "blog" | "youtube";
 
 export type SourceIngestResponse = {

@@ -1,6 +1,5 @@
 import json
 import re
-from datetime import datetime, timezone
 from functools import cached_property
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
@@ -14,7 +13,7 @@ from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from pydantic import ValidationError
 
 from app.config import Settings
-from app.schemas import Activity, ActivityFeedbackRequest, DayPlan, RefinementRequest, SourceSnippet, TripRequest, TripResponse
+from app.schemas import Activity, DayPlan, RefinementRequest, SourceSnippet, TripRequest, TripResponse
 from app.services.hash_embeddings import HashEmbeddings
 
 
@@ -234,26 +233,6 @@ class TravelRAGService:
             return self._refine_with_llm(request, documents)
         return self._refine_demo(request, documents)
 
-    def record_activity_feedback(self, feedback: ActivityFeedbackRequest, user_id: str) -> Dict[str, str]:
-        self.ensure_index()
-        entry = self._format_feedback_entry(feedback)
-        self.vectorstore.add_documents(
-            [
-                Document(
-                    page_content=entry,
-                    metadata={
-                        "city": "personal",
-                        "category": "activity feedback",
-                        "scope": "personal",
-                        "title": "Activity Feedback",
-                        "owner_scope": "user",
-                        "user_id": user_id,
-                    },
-                )
-            ]
-        )
-        return {"message": "Activity feedback saved to personal travel memory."}
-
     def _plan_with_llm(self, trip: TripRequest, documents: List[Document]) -> TripResponse:
         context = self._serialize_context(documents)
         prompt = ChatPromptTemplate.from_messages(
@@ -470,23 +449,6 @@ class TravelRAGService:
             seen.add(key)
             deduped.append(doc)
         return deduped
-
-    def _format_feedback_entry(self, feedback: ActivityFeedbackRequest) -> str:
-        timestamp = datetime.now(timezone.utc).isoformat()
-        source_text = ", ".join(feedback.source_titles) if feedback.source_titles else "none"
-        note = feedback.note.strip() or "none"
-        return "\n".join(
-            [
-                f"## Feedback: {feedback.destination} day {feedback.day} {feedback.period}",
-                "",
-                f"- Recorded at: {timestamp}",
-                f"- Destination: {feedback.destination}",
-                f"- Activity: {feedback.title}",
-                f"- Rating: {feedback.rating.replace('_', ' ')}",
-                f"- Note: {note}",
-                f"- Sources: {source_text}",
-            ]
-        )
 
     def _parse_llm_trip_response(self, content: str, documents: List[Document]) -> TripResponse:
         try:

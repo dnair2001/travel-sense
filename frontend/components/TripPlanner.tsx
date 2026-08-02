@@ -4,7 +4,7 @@ import { FormEvent, useState } from "react";
 
 import { useAuth } from "../lib/AuthContext";
 import { requestJson } from "../lib/api";
-import { Activity, FeedbackRating, TripRequest, TripResponse } from "../lib/types";
+import { TripRequest, TripResponse } from "../lib/types";
 import { ItineraryResult } from "./ItineraryResult";
 import { TripForm } from "./TripForm";
 
@@ -27,7 +27,6 @@ export function TripPlanner() {
   const [result, setResult] = useState<TripResponse | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isRefining, setIsRefining] = useState(false);
-  const [feedbackStatus, setFeedbackStatus] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -73,41 +72,14 @@ export function TripPlanner() {
     }
   }
 
-  async function handleFeedback(day: number, activity: Activity, rating: FeedbackRating) {
-    const key = `${day}-${activity.title}-${rating}`;
-    setFeedbackStatus((current) => ({ ...current, [key]: "Saving..." }));
-    setError(null);
-
-    try {
-      await requestJson(`/api/feedback`, user, {
-        payload: {
-          destination: trip.destination,
-          day,
-          period: activity.period,
-          title: activity.title,
-          rating,
-          note: "",
-          source_titles: activity.source_titles,
-        },
-      });
-
-      setFeedbackStatus((current) => ({ ...current, [key]: "Saved" }));
-    } catch (feedbackError) {
-      setFeedbackStatus((current) => ({ ...current, [key]: "Try again" }));
-      setError(feedbackError instanceof Error ? feedbackError.message : "Failed to save feedback.");
-    }
-  }
-
   if (view === "result" && result) {
     return (
       <ItineraryResult
         destination={trip.destination}
         error={error}
-        feedbackStatus={feedbackStatus}
         isRefining={isRefining}
         onBack={() => setView("plan")}
         onChangeRefinement={setRefinement}
-        onFeedback={handleFeedback}
         onRefine={handleRefine}
         refinement={refinement}
         result={result}

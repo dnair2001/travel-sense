@@ -59,10 +59,6 @@ class FakeRAGService:
             generation_mode="demo",
         )
 
-    def record_activity_feedback(self, feedback, user_id):
-        assert user_id == TEST_UID
-        return {"message": f"Saved {feedback.rating} feedback for {feedback.title}."}
-
 
 class FakeIngestionService:
     def __init__(self):
@@ -344,27 +340,6 @@ def test_refine_itinerary_route_handles_generation_error(client):
     assert response.status_code == 502
     assert response.json() == {
         "detail": "The itinerary model returned an invalid response. Please try again."
-    }
-
-
-def test_record_activity_feedback_route(client):
-    response = client.post(
-        "/api/feedback",
-        json={
-            "destination": "Tokyo",
-            "day": 2,
-            "period": "Afternoon",
-            "title": "Daikanyama T-Site",
-            "rating": "love",
-            "note": "Great bookstore and cafe fit.",
-            "source_titles": ["Saved Places Tokyo"],
-        },
-    )
-
-    assert response.status_code == 200
-    assert response.json() == {
-        "saved": True,
-        "message": "Saved love feedback for Daikanyama T-Site.",
     }
 
 

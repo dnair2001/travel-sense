@@ -5,7 +5,6 @@ from pydantic import BaseModel, Field
 
 BudgetLevel = Literal["budget", "mid-range", "luxury"]
 PaceLevel = Literal["slow", "balanced", "fast"]
-FeedbackRating = Literal["love", "not_for_me", "too_expensive", "too_much_walking", "too_touristy"]
 
 
 class TripRequest(BaseModel):
@@ -50,21 +49,6 @@ class RefinementRequest(BaseModel):
     current_summary: str
     current_itinerary: list[DayPlan]
     instruction: str = Field(..., min_length=3)
-
-
-class ActivityFeedbackRequest(BaseModel):
-    destination: str = Field(..., min_length=2)
-    day: int = Field(..., ge=1, le=14)
-    period: Literal["Morning", "Afternoon", "Evening"]
-    title: str = Field(..., min_length=1)
-    rating: FeedbackRating
-    note: str = ""
-    source_titles: list[str] = Field(default_factory=list)
-
-
-class ActivityFeedbackResponse(BaseModel):
-    saved: bool
-    message: str
 
 
 SourceType = Literal["blog", "youtube"]

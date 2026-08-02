@@ -5,21 +5,13 @@ import { useEffect, useRef, useState } from "react";
 
 import { useAuth } from "../lib/AuthContext";
 import { requestJson } from "../lib/api";
-import { Activity, DayPlan, FeedbackRating, GeocodeResult, RouteResponse, TripResponse } from "../lib/types";
+import { Activity, DayPlan, GeocodeResult, RouteResponse, TripResponse } from "../lib/types";
 import type { MapStop } from "./ItineraryMapView";
 
 const ItineraryMapView = dynamic(() => import("./ItineraryMapView"), {
   ssr: false,
   loading: () => <div className="map-loading">Loading map…</div>,
 });
-
-const feedbackOptions: { rating: FeedbackRating; label: string }[] = [
-  { rating: "love", label: "Love" },
-  { rating: "not_for_me", label: "Not for me" },
-  { rating: "too_expensive", label: "Too expensive" },
-  { rating: "too_much_walking", label: "Too much walking" },
-  { rating: "too_touristy", label: "Too touristy" },
-];
 
 export function ItineraryResult({
   destination,
@@ -28,8 +20,6 @@ export function ItineraryResult({
   onChangeRefinement,
   onRefine,
   isRefining,
-  onFeedback,
-  feedbackStatus,
   error,
   onBack,
 }: {
@@ -39,8 +29,6 @@ export function ItineraryResult({
   onChangeRefinement: (value: string) => void;
   onRefine: () => void;
   isRefining: boolean;
-  onFeedback: (day: number, activity: Activity, rating: FeedbackRating) => void;
-  feedbackStatus: Record<string, string>;
   error: string | null;
   onBack: () => void;
 }) {
@@ -99,7 +87,7 @@ export function ItineraryResult({
 
         <div className="days-stack">
           {result.itinerary.map((day) => (
-            <DayCard day={day} feedbackStatus={feedbackStatus} key={day.day} onFeedback={onFeedback} />
+            <DayCard day={day} key={day.day} />
           ))}
         </div>
       </section>
@@ -163,15 +151,7 @@ export function ItineraryResult({
   );
 }
 
-function DayCard({
-  day,
-  feedbackStatus,
-  onFeedback,
-}: {
-  day: DayPlan;
-  feedbackStatus: Record<string, string>;
-  onFeedback: (day: number, activity: Activity, rating: FeedbackRating) => void;
-}) {
+function DayCard({ day }: { day: DayPlan }) {
   return (
     <article className="day-card">
       <div className="day-card-header">
@@ -191,21 +171,6 @@ function DayCard({
             </div>
             <p>{activity.reason}</p>
             <small>{activity.source_titles.join(", ")}</small>
-            <div className="feedback-row no-print" aria-label={`Feedback for ${activity.title}`}>
-              {feedbackOptions.map((option) => {
-                const key = getFeedbackKey(day.day, activity.title, option.rating);
-                return (
-                  <button
-                    className="feedback-button"
-                    key={option.rating}
-                    onClick={() => onFeedback(day.day, activity, option.rating)}
-                    type="button"
-                  >
-                    {feedbackStatus[key] ?? option.label}
-                  </button>
-                );
-              })}
-            </div>
           </div>
         ))}
       </div>
@@ -426,8 +391,4 @@ function formatDuration(seconds: number): string {
   if (minutes < 1) return "<1 min";
   if (minutes < 60) return `${minutes} min`;
   return `${Math.floor(minutes / 60)} hr ${minutes % 60} min`;
-}
-
-function getFeedbackKey(day: number, title: string, rating: FeedbackRating): string {
-  return `${day}-${title}-${rating}`;
 }

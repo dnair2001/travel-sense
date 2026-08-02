@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.auth import get_current_user
 from app.dependencies import get_rag_service
-from app.schemas import ActivityFeedbackRequest, ActivityFeedbackResponse, RefinementRequest, TripRequest, TripResponse
+from app.schemas import RefinementRequest, TripRequest, TripResponse
 from app.services.rag import GenerationError, TravelRAGService, UnsupportedDestinationError
 
 router = APIRouter(prefix="/api", tags=["itinerary"])
@@ -55,13 +55,3 @@ def refine_itinerary(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="The itinerary model returned an invalid response. Please try again.",
         ) from exc
-
-
-@router.post("/feedback", response_model=ActivityFeedbackResponse)
-def record_activity_feedback(
-    feedback: ActivityFeedbackRequest,
-    rag_service: TravelRAGService = Depends(get_rag_service),
-    user_id: str = Depends(get_current_user),
-) -> ActivityFeedbackResponse:
-    result = rag_service.record_activity_feedback(feedback, user_id)
-    return ActivityFeedbackResponse(saved=True, message=result["message"])

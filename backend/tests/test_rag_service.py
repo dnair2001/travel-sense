@@ -2,7 +2,7 @@ import pytest
 from langchain_core.documents import Document
 
 from app.config import Settings
-from app.schemas import Activity, ActivityFeedbackRequest, DayPlan, RefinementRequest, TripRequest
+from app.schemas import Activity, DayPlan, RefinementRequest, TripRequest
 from app.services.rag import GenerationError, TravelRAGService, UnsupportedDestinationError
 
 TEST_USER = "test-user"
@@ -389,27 +389,6 @@ def test_personal_data_excluded_without_legacy_owner_configured(tmp_path):
     )
     documents = service.retrieve_documents(trip, TEST_USER)
     assert not any(doc.metadata.get("scope") == "personal" for doc in documents)
-
-
-def test_format_feedback_entry_includes_activity_details(tmp_path):
-    service = make_service(tmp_path)
-    feedback = ActivityFeedbackRequest(
-        destination="Tokyo",
-        day=2,
-        period="Afternoon",
-        title="Daikanyama T-Site",
-        rating="love",
-        note="Great bookstore and cafe fit.",
-        source_titles=["Saved Places Tokyo"],
-    )
-
-    entry = service._format_feedback_entry(feedback)
-
-    assert "## Feedback: Tokyo day 2 Afternoon" in entry
-    assert "- Activity: Daikanyama T-Site" in entry
-    assert "- Rating: love" in entry
-    assert "- Note: Great bookstore and cafe fit." in entry
-    assert "- Sources: Saved Places Tokyo" in entry
 
 
 def test_parse_llm_trip_response_accepts_valid_json(tmp_path):
