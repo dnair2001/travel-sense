@@ -502,12 +502,17 @@ h3 {
 
 .map-legend li {
   display: grid;
+  gap: 8px;
+}
+
+.map-legend-stop {
+  display: grid;
   grid-template-columns: 28px minmax(0, 1fr);
   gap: 12px;
   align-items: start;
 }
 
-.map-legend li span {
+.map-legend-stop span {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -520,18 +525,56 @@ h3 {
   font-weight: 800;
 }
 
-.map-legend li strong {
+.map-legend-stop strong {
   display: block;
   font-family: var(--font-sans);
   font-size: 14px;
   font-weight: 700;
 }
 
-.map-legend li p {
+.map-legend-stop p {
   margin: 4px 0 0;
   color: var(--muted);
   font-size: 12.5px;
   line-height: 1.4;
+}
+
+/* ---------- Directions ---------- */
+
+.directions-leg {
+  margin-left: 40px;
+  padding-left: 10px;
+  border-left: 2px dashed var(--line-strong);
+}
+
+.directions-leg-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  border: 0;
+  background: none;
+  padding: 4px 0;
+  color: var(--lav);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.directions-leg-summary span:last-child {
+  color: var(--muted);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.directions-steps {
+  margin: 4px 0 6px;
+  padding-left: 18px;
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.6;
 }
 
 .mode-pill {

@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { useAuth } from "../lib/AuthContext";
 import { requestJson } from "../lib/api";
-import { Activity, DayPlan, FeedbackRating, GeocodeResult, TripResponse } from "../lib/types";
+import { Activity, DayPlan, FeedbackRating, GeocodeResult, RouteResponse, TripResponse } from "../lib/types";
 import type { MapStop } from "./ItineraryMapView";
 
 const ItineraryMapView = dynamic(() => import("./ItineraryMapView"), {
@@ -267,8 +267,62 @@ function useDayStops(destination: string, day: DayPlan | null): { stops: MapStop
   return { stops, loading };
 }
 
+// Fetches a real walking route through the resolved stops, in order, once
+// there are at least two. Cached per exact coordinate sequence so re-visiting
+// a day tab doesn't re-fetch. Falls back to no route (straight line, no leg
+// details) if OSRM can't find one -- the map and legend still work without it.
+function useDayRoute(stops: MapStop[]): { route: RouteResponse | null; loading: boolean } {
+  const { user } = useAuth();
+  const [route, setRoute] = useState<RouteResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+  const cacheRef = useRef<Map<string, RouteResponse | null>>(new Map());
+
+  const key = stops.map((stop) => `${stop.lat.toFixed(5)},${stop.lng.toFixed(5)}`).join(";");
+
+  useEffect(() => {
+    if (stops.length < 2) {
+      setRoute(null);
+      setLoading(false);
+      return;
+    }
+
+    const cache = cacheRef.current;
+    if (cache.has(key)) {
+      setRoute(cache.get(key) ?? null);
+      return;
+    }
+
+    let cancelled = false;
+    setLoading(true);
+    requestJson<RouteResponse>("/api/directions", user, {
+      payload: { coordinates: stops.map((stop) => [stop.lat, stop.lng]) },
+    })
+      .then((result) => {
+        if (cancelled) return;
+        cache.set(key, result);
+        setRoute(result);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        cache.set(key, null);
+        setRoute(null);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, user]);
+
+  return { route, loading };
+}
+
 function ItineraryMap({ destination, day }: { destination: string; day: DayPlan }) {
   const { stops, loading } = useDayStops(destination, day);
+  const { route, loading: routeLoading } = useDayRoute(stops);
 
   if (loading && stops.length === 0) {
     return (
@@ -292,7 +346,7 @@ function ItineraryMap({ destination, day }: { destination: string; day: DayPlan 
   return (
     <div className="itinerary-map">
       <div className="map-canvas">
-        <ItineraryMapView stops={stops} />
+        <ItineraryMapView routeGeometry={route?.geometry} stops={stops} />
       </div>
 
       <div className="map-legend">
@@ -301,19 +355,57 @@ function ItineraryMap({ destination, day }: { destination: string; day: DayPlan 
           <strong>{day.theme}</strong>
         </div>
         <ul>
-          {stops.map((stop) => (
+          {stops.map((stop, index) => (
             <li key={`${stop.label}-${stop.index}`}>
-              <span>{stop.index}</span>
-              <div>
-                <strong>{stop.label}</strong>
-                <p>{stop.detail ?? "Mapped from itinerary context"}</p>
+              <div className="map-legend-stop">
+                <span>{stop.index}</span>
+                <div>
+                  <strong>{stop.label}</strong>
+                  <p>{stop.detail ?? "Mapped from itinerary context"}</p>
+                </div>
               </div>
+              {route?.legs[index] ? <DirectionsLeg leg={route.legs[index]} /> : null}
             </li>
           ))}
         </ul>
+        {routeLoading ? <p className="status-text">Finding walking directions…</p> : null}
       </div>
     </div>
   );
+}
+
+function DirectionsLeg({ leg }: { leg: RouteResponse["legs"][number] }) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <div className="directions-leg">
+      <button className="directions-leg-summary" onClick={() => setExpanded((current) => !current)} type="button">
+        <span>↳ {formatDistance(leg.distance_m)} · {formatDuration(leg.duration_s)} walk</span>
+        <span>{expanded ? "Hide steps" : "Show steps"}</span>
+      </button>
+      {expanded ? (
+        <ol className="directions-steps">
+          {leg.steps.map((step, index) => (
+            <li key={index}>
+              {step.instruction}
+              {step.distance_m > 0 ? <span> · {formatDistance(step.distance_m)}</span> : null}
+            </li>
+          ))}
+        </ol>
+      ) : null}
+    </div>
+  );
+}
+
+function formatDistance(meters: number): string {
+  return meters >= 1000 ? `${(meters / 1000).toFixed(1)} km` : `${Math.round(meters)} m`;
+}
+
+function formatDuration(seconds: number): string {
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 1) return "<1 min";
+  if (minutes < 60) return `${minutes} min`;
+  return `${Math.floor(minutes / 60)} hr ${minutes % 60} min`;
 }
 
 function getFeedbackKey(day: number, title: string, rating: FeedbackRating): string {

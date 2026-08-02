@@ -44,9 +44,20 @@ function FitBounds({ stops }: { stops: MapStop[] }) {
   return null;
 }
 
-export default function ItineraryMapView({ stops }: { stops: MapStop[] }) {
+export default function ItineraryMapView({
+  stops,
+  routeGeometry,
+}: {
+  stops: MapStop[];
+  // Real street-following path from /api/directions. GeoJSON coordinates are
+  // [lng, lat]; falls back to a straight line between stops when absent
+  // (routing failed, or there's nothing to route between yet).
+  routeGeometry?: GeoJSON.LineString | null;
+}) {
   const center: [number, number] = stops.length ? [stops[0].lat, stops[0].lng] : [20, 0];
-  const line = stops.map((stop) => [stop.lat, stop.lng] as [number, number]);
+  const line: [number, number][] = routeGeometry
+    ? routeGeometry.coordinates.map(([lng, lat]) => [lat, lng])
+    : stops.map((stop) => [stop.lat, stop.lng]);
 
   return (
     <MapContainer
@@ -61,7 +72,18 @@ export default function ItineraryMapView({ stops }: { stops: MapStop[] }) {
         url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
       />
       {line.length > 1 ? (
-        <Polyline positions={line} pathOptions={{ color: "#0e7c86", weight: 4, opacity: 0.85, dashArray: "8 8" }} />
+        <Polyline
+          // Keyed on route presence: Leaflet's setStyle() merges pathOptions
+          // rather than replacing them, so dropping dashArray between
+          // renders wouldn't otherwise clear it from an existing layer.
+          key={routeGeometry ? "route" : "fallback"}
+          positions={line}
+          pathOptions={
+            routeGeometry
+              ? { color: "#0e7c86", weight: 4, opacity: 0.85 }
+              : { color: "#0e7c86", weight: 4, opacity: 0.85, dashArray: "8 8" }
+          }
+        />
       ) : null}
       {stops.map((stop) => (
         <Marker key={`${stop.label}-${stop.index}`} position={[stop.lat, stop.lng]} icon={numberedIcon(stop.index)}>

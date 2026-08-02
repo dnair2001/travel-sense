@@ -83,3 +83,21 @@ export type GeocodeResult = {
   lng: number;
   label: string;
 };
+
+export type RouteStep = {
+  instruction: string;
+  distance_m: number;
+};
+
+export type RouteLeg = {
+  distance_m: number;
+  duration_s: number;
+  steps: RouteStep[];
+};
+
+export type RouteResponse = {
+  geometry: GeoJSON.LineString;
+  distance_m: number;
+  duration_s: number;
+  legs: RouteLeg[];
+};

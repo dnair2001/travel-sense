@@ -4,6 +4,7 @@ from app.config import get_settings
 from app.services.geocoding import GeocodingService
 from app.services.ingestion import SourceIngestionService
 from app.services.rag import TravelRAGService
+from app.services.routing import RoutingService
 
 
 @lru_cache
@@ -19,3 +20,8 @@ def get_ingestion_service() -> SourceIngestionService:
 @lru_cache
 def get_geocoding_service() -> GeocodingService:
     return GeocodingService()
+
+
+@lru_cache
+def get_routing_service() -> RoutingService:
+    return RoutingService()

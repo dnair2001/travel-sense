@@ -2,11 +2,12 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.auth import get_current_user
-from app.dependencies import get_geocoding_service, get_ingestion_service, get_rag_service
+from app.dependencies import get_geocoding_service, get_ingestion_service, get_rag_service, get_routing_service
 from app.main import app
 from app.schemas import Activity, DayPlan, IngestedSource, SourceSnippet, TripResponse
 from app.services.ingestion import IngestionError
 from app.services.rag import GenerationError, UnsupportedDestinationError
+from app.services.routing import RoutingError
 
 TEST_UID = "test-uid-123"
 
@@ -104,11 +105,30 @@ class FakeGeocodingService:
         return (35.6762, 139.6503, f"{query} (geocoded)")
 
 
+class FakeRoutingService:
+    def get_route(self, coordinates):
+        if len(coordinates) < 2:
+            raise RoutingError("Need at least 2 points to route between.")
+        return {
+            "geometry": {"type": "LineString", "coordinates": [[c[1], c[0]] for c in coordinates]},
+            "distance_m": 1000.0,
+            "duration_s": 600.0,
+            "legs": [
+                {
+                    "distance_m": 1000.0,
+                    "duration_s": 600.0,
+                    "steps": [{"instruction": "Head out on Main St", "distance_m": 1000.0}],
+                }
+            ],
+        }
+
+
 @pytest.fixture
 def client():
     app.dependency_overrides[get_rag_service] = lambda: FakeRAGService()
     app.dependency_overrides[get_ingestion_service] = lambda: FakeIngestionService()
     app.dependency_overrides[get_geocoding_service] = lambda: FakeGeocodingService()
+    app.dependency_overrides[get_routing_service] = lambda: FakeRoutingService()
     app.dependency_overrides[get_current_user] = lambda: TEST_UID
     try:
         yield TestClient(app)
@@ -121,6 +141,7 @@ def unauthenticated_client():
     app.dependency_overrides[get_rag_service] = lambda: FakeRAGService()
     app.dependency_overrides[get_ingestion_service] = lambda: FakeIngestionService()
     app.dependency_overrides[get_geocoding_service] = lambda: FakeGeocodingService()
+    app.dependency_overrides[get_routing_service] = lambda: FakeRoutingService()
     try:
         yield TestClient(app)
     finally:
@@ -409,3 +430,31 @@ def test_geocode_route_requires_authentication(unauthenticated_client):
     response = unauthenticated_client.get("/api/geocode", params={"query": "Tokyo"})
 
     assert response.status_code == 401
+
+
+def test_directions_route_returns_route(client):
+    response = client.post(
+        "/api/directions",
+        json={"coordinates": [[35.6762, 139.6503], [35.66, 139.70]]},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["distance_m"] == 1000.0
+    assert len(body["legs"]) == 1
+    assert body["legs"][0]["steps"][0]["instruction"] == "Head out on Main St"
+
+
+def test_directions_route_requires_authentication(unauthenticated_client):
+    response = unauthenticated_client.post(
+        "/api/directions",
+        json={"coordinates": [[35.6762, 139.6503], [35.66, 139.70]]},
+    )
+
+    assert response.status_code == 401
+
+
+def test_directions_route_requires_at_least_two_coordinates(client):
+    response = client.post("/api/directions", json={"coordinates": [[35.6762, 139.6503]]})
+
+    assert response.status_code == 422
