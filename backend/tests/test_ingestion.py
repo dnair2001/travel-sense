@@ -32,6 +32,14 @@ class FakeHttpResponse:
         return None
 
 
+class FakeFetchedTranscript:
+    def __init__(self, raw_data) -> None:
+        self._raw_data = raw_data
+
+    def to_raw_data(self):
+        return self._raw_data
+
+
 @pytest.mark.parametrize(
     "url,expected",
     [
@@ -108,8 +116,10 @@ def test_ingest_youtube_video(tmp_path, monkeypatch):
     service = make_ingestion_service(tmp_path)
 
     monkeypatch.setattr(
-        "app.services.ingestion.YouTubeTranscriptApi.get_transcript",
-        lambda video_id: [{"text": "Welcome to"}, {"text": "Lisbon's best miradouros."}],
+        "app.services.ingestion.YouTubeTranscriptApi.fetch",
+        lambda self, video_id, *args, **kwargs: FakeFetchedTranscript(
+            [{"text": "Welcome to"}, {"text": "Lisbon's best miradouros."}]
+        ),
     )
 
     result = service.ingest(TEST_USER, "Lisbon", "https://youtu.be/abc123")
@@ -123,10 +133,10 @@ def test_ingest_youtube_video_raises_when_no_transcript(tmp_path, monkeypatch):
 
     service = make_ingestion_service(tmp_path)
 
-    def raise_disabled(video_id):
+    def raise_disabled(self, video_id, *args, **kwargs):
         raise TranscriptsDisabled(video_id)
 
-    monkeypatch.setattr("app.services.ingestion.YouTubeTranscriptApi.get_transcript", raise_disabled)
+    monkeypatch.setattr("app.services.ingestion.YouTubeTranscriptApi.fetch", raise_disabled)
 
     with pytest.raises(IngestionError):
         service.ingest(TEST_USER, "Lisbon", "https://youtu.be/abc123")

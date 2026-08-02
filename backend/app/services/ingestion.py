@@ -1,18 +1,16 @@
 import hashlib
 import json
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 from urllib.parse import parse_qs, urlparse
 
 import httpx
 import trafilatura
+from defusedxml import ElementTree
 from langchain_core.documents import Document
 from youtube_transcript_api import YouTubeTranscriptApi
-from youtube_transcript_api._errors import (
-    NoTranscriptFound,
-    TranscriptsDisabled,
-    VideoUnavailable,
-)
+from youtube_transcript_api._errors import CouldNotRetrieveTranscript
 
 from app.schemas import IngestedSource, SourceType
 from app.services.rag import TravelRAGService
@@ -173,12 +171,31 @@ class SourceIngestionService:
 
     def _fetch_youtube_transcript(self, url: str) -> tuple[str, str]:
         video_id = extract_youtube_video_id(url)
+        # youtube_transcript_api opens its own requests.Session with no timeout,
+        # so a slow/blocked path to YouTube can hang forever; bound it explicitly
+        # the same way the blog fetch is bounded below.
+        executor = ThreadPoolExecutor(max_workers=1)
         try:
-            segments = YouTubeTranscriptApi.get_transcript(video_id)
-        except (TranscriptsDisabled, NoTranscriptFound, VideoUnavailable) as exc:
+            future = executor.submit(YouTubeTranscriptApi().fetch, video_id)
+            transcript = future.result(timeout=FETCH_TIMEOUT_SECONDS)
+        except FutureTimeoutError as exc:
             raise IngestionError(
-                f"No captions are available for this video ({url})."
+                f"Timed out while fetching captions for this video ({url})."
             ) from exc
+        except CouldNotRetrieveTranscript as exc:
+            raise IngestionError(
+                f"No captions are available for this video ({url}): {exc}"
+            ) from exc
+        except ElementTree.ParseError as exc:
+            # Known youtube_transcript_api issue: YouTube can advertise a caption
+            # track (often auto-generated, common on Shorts) but return an empty
+            # body when it's actually fetched, which fails XML parsing.
+            raise IngestionError(
+                f"YouTube returned empty/corrupted captions for this video ({url})."
+            ) from exc
+        finally:
+            executor.shutdown(wait=False)
+        segments = transcript.to_raw_data()
         text = " ".join(segment.get("text", "") for segment in segments).strip()
         if not text:
             raise IngestionError(f"No captions are available for this video ({url}).")
