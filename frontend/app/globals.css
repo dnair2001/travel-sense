@@ -213,6 +213,17 @@ h3 {
     background 160ms ease;
 }
 
+.planner-panel input[type="number"] {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.planner-panel input[type="number"]::-webkit-inner-spin-button,
+.planner-panel input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
 .planner-panel select {
   appearance: none;
   background-image:
@@ -311,6 +322,11 @@ h3 {
   border-top-color: #fff;
   border-radius: 50%;
   animation: spin 700ms linear infinite;
+}
+
+.spinner-muted {
+  border-color: rgba(14, 124, 134, 0.2);
+  border-top-color: var(--accent);
 }
 
 @keyframes spin {
@@ -438,8 +454,11 @@ h3 {
 }
 
 .map-loading {
-  display: grid;
-  place-content: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
   height: 100%;
   min-height: 420px;
   color: var(--muted);

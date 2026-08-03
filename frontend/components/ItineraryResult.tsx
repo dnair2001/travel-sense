@@ -196,6 +196,11 @@ function useDayStops(destination: string, day: DayPlan | null): { stops: MapStop
     }
 
     let cancelled = false;
+    // Clear any stale stops from the previously active day immediately, so
+    // switching days always shows the loading state rather than leaving the
+    // old day's map/legend sitting on screen (looking frozen) until the new
+    // day's geocoding finishes.
+    setStops([]);
     setLoading(true);
 
     async function resolve(activity: Activity): Promise<{ label: string; detail: string; result: GeocodeResult } | null> {
@@ -297,15 +302,18 @@ function ItineraryMap({ destination, day }: { destination: string; day: DayPlan 
   const { stops, loading } = useDayStops(destination, day);
   const { route, loading: routeLoading } = useDayRoute(stops);
 
-  if (loading && stops.length === 0) {
+  if (loading) {
     return (
       <div className="itinerary-map">
-        <div className="map-loading">Locating stops…</div>
+        <div className="map-loading">
+          <span className="spinner spinner-muted" aria-hidden="true" />
+          Locating stops…
+        </div>
       </div>
     );
   }
 
-  if (!loading && stops.length === 0) {
+  if (stops.length === 0) {
     return (
       <div className="itinerary-map">
         <div className="empty-state">
