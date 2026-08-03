@@ -9,21 +9,22 @@ import { ItineraryResult } from "./ItineraryResult";
 import { TripForm } from "./TripForm";
 
 const defaultTrip: TripRequest = {
-  destination: "Tokyo",
+  destination: "",
   days: 4,
   budget: "mid-range",
-  interests: ["food", "museums"],
+  interests: [],
   travel_style: "personalized traveler",
   pace: "balanced",
-  constraints: "Avoid overly packed transit-heavy afternoons.",
+  constraints: "",
 };
 
 export function TripPlanner() {
   const { user } = useAuth();
   const [view, setView] = useState<"plan" | "result">("plan");
   const [trip, setTrip] = useState<TripRequest>(defaultTrip);
-  const [interestInput, setInterestInput] = useState(defaultTrip.interests.join(", "));
-  const [refinement, setRefinement] = useState("Make day 2 less walking-heavy and add more local food.");
+  const [interestInput, setInterestInput] = useState("");
+  const [daysInput, setDaysInput] = useState("");
+  const [refinement, setRefinement] = useState("");
   const [result, setResult] = useState<TripResponse | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isRefining, setIsRefining] = useState(false);
@@ -34,7 +35,7 @@ export function TripPlanner() {
     setError(null);
     setIsLoading(true);
 
-    const payload = { ...trip, interests: splitInterests(interestInput) };
+    const payload = { ...trip, days: parseDays(daysInput), interests: splitInterests(interestInput) };
     setTrip(payload);
 
     try {
@@ -89,9 +90,11 @@ export function TripPlanner() {
 
   return (
     <TripForm
+      daysInput={daysInput}
       error={error}
       interestInput={interestInput}
       isLoading={isLoading}
+      onChangeDaysInput={setDaysInput}
       onChangeInterestInput={setInterestInput}
       onChangeTrip={setTrip}
       onSubmit={handleSubmit}
@@ -105,4 +108,12 @@ function splitInterests(value: string): string[] {
     .split(",")
     .map((interest) => interest.trim())
     .filter(Boolean);
+}
+
+function parseDays(value: string): number {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) {
+    return 1;
+  }
+  return Math.min(14, Math.max(1, parsed));
 }

@@ -8,16 +8,20 @@ import { SourceIngestForm } from "./SourceIngestForm";
 export function TripForm({
   trip,
   interestInput,
+  daysInput,
   onChangeTrip,
   onChangeInterestInput,
+  onChangeDaysInput,
   onSubmit,
   isLoading,
   error,
 }: {
   trip: TripRequest;
   interestInput: string;
+  daysInput: string;
   onChangeTrip: (updater: (current: TripRequest) => TripRequest) => void;
   onChangeInterestInput: (value: string) => void;
+  onChangeDaysInput: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   isLoading: boolean;
   error: string | null;
@@ -47,8 +51,9 @@ export function TripForm({
               type="number"
               min={1}
               max={14}
-              value={trip.days}
-              onChange={(event) => onChangeTrip((current) => ({ ...current, days: Number(event.target.value) }))}
+              value={daysInput}
+              onChange={(event) => onChangeDaysInput(event.target.value)}
+              placeholder="e.g. 4"
             />
           </label>
         </div>
