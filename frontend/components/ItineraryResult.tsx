@@ -232,6 +232,7 @@ function useDayStops(destination: string, day: DayPlan | null): { stops: MapStop
           lng: item.result.lng,
           index: index + 1,
           detail: item.detail,
+          isApproximate: item.result.is_approximate,
         }));
       setStops(nextStops);
       setLoading(false);
@@ -350,6 +351,7 @@ function ItineraryMap({ destination, day }: { destination: string; day: DayPlan 
                 <div>
                   <strong>{stop.label}</strong>
                   <p>{stop.detail ?? "Mapped from itinerary context"}</p>
+                  {stop.isApproximate ? <small className="approx-badge">Approximate area</small> : null}
                 </div>
               </div>
               {route?.legs[index] ? <RouteLegSummary leg={route.legs[index]} /> : null}

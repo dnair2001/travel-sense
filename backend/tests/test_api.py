@@ -98,7 +98,7 @@ class FakeGeocodingService:
     def geocode(self, query):
         if query == "Nowhere":
             return None
-        return (35.6762, 139.6503, f"{query} (geocoded)")
+        return (35.6762, 139.6503, f"{query} (geocoded)", False)
 
 
 class FakeRoutingService:
@@ -394,6 +394,7 @@ def test_geocode_route_returns_coordinates(client):
     assert body["lat"] == 35.6762
     assert body["lng"] == 139.6503
     assert body["label"] == "Tsukiji Outer Market, Tokyo (geocoded)"
+    assert body["is_approximate"] is False
 
 
 def test_geocode_route_returns_404_when_not_found(client):

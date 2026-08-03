@@ -92,6 +92,7 @@ class GeocodeResponse(BaseModel):
     lat: float
     lng: float
     label: str
+    is_approximate: bool = False
 
 
 class DirectionsRequest(BaseModel):

@@ -17,5 +17,5 @@ def geocode(
     result = geocoding_service.geocode(query)
     if result is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"No location found for '{query}'.")
-    lat, lng, label = result
-    return GeocodeResponse(lat=lat, lng=lng, label=label)
+    lat, lng, label, is_approximate = result
+    return GeocodeResponse(lat=lat, lng=lng, label=label, is_approximate=is_approximate)

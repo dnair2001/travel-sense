@@ -59,7 +59,7 @@ def test_geocode_strips_generic_descriptor_before_searching(monkeypatch):
 
     result = service.geocode("Shinjuku District, Tokyo")
 
-    assert result == (35.69, 139.70, "Shinjuku, Tokyo, Japan")
+    assert result == (35.69, 139.70, "Shinjuku, Tokyo, Japan", False)
     assert "Shinjuku District, Tokyo" not in calls
 
 
@@ -82,7 +82,7 @@ def test_geocode_falls_back_to_dropping_leading_word(monkeypatch):
 
     result = service.geocode("Odaiba Rainbow Bridge, Tokyo")
 
-    assert result == (35.64, 139.76, "Rainbow Bridge, Tokyo, Japan")
+    assert result == (35.64, 139.76, "Rainbow Bridge, Tokyo, Japan", False)
     assert "Odaiba Rainbow Bridge, Tokyo" in calls
     assert "Rainbow Bridge, Tokyo" in calls
 
@@ -129,7 +129,7 @@ def test_geocode_falls_back_to_trailing_location_phrase(monkeypatch):
 
     result = service.geocode("Dinner in Bairro Alto, Lisbon")
 
-    assert result == (38.71, -9.14, "Bairro Alto, Lisbon")
+    assert result == (38.71, -9.14, "Bairro Alto, Lisbon", False)
     # Resolves the destination's bounding box first (from the text after the
     # last comma), then searches the full query, then the fallback phrase.
     assert calls == ["Lisbon", "Dinner in Bairro Alto, Lisbon", "Bairro Alto, Lisbon"]
@@ -175,7 +175,7 @@ def test_geocode_falls_back_to_any_venue_in_city_for_chain_names(monkeypatch):
 
     result = service.geocode("Yayoi-ken, Tokyo")
 
-    assert result == (35.65, 139.7, "Yayoi-ken, Yokohama, Japan")
+    assert result == (35.65, 139.7, "Yayoi-ken, Yokohama, Japan", False)
 
 
 def test_geocode_any_venue_fallback_picks_nearest_candidate(monkeypatch):
@@ -216,7 +216,30 @@ def test_geocode_any_venue_fallback_picks_nearest_candidate(monkeypatch):
 
     result = service.geocode("Yayoi-ken, Tokyo")
 
-    assert result == (35.681, 139.651, "Near branch")
+    assert result == (35.681, 139.651, "Near branch", False)
+
+
+def test_geocode_falls_back_to_destination_center_when_nothing_matches_by_name(monkeypatch):
+    service = GeocodingService()
+    monkeypatch.setattr("app.services.geocoding.GeocodingService._throttle", lambda self: None)
+
+    def fake_get(*args, **kwargs):
+        params = kwargs["params"]
+        if params["q"] == "Tokyo":
+            return FakeHttpResponse(
+                [{"lat": "35.68", "lon": "139.65", "boundingbox": ["35.5", "35.9", "139.5", "139.9"]}]
+            )
+        # Nothing matches by name at any radius -- not the exact query, not
+        # any of its rewrites, not the tight or day-trip any-venue searches.
+        return FakeHttpResponse([])
+
+    monkeypatch.setattr("app.services.geocoding.httpx.get", fake_get)
+
+    result = service.geocode("Completely Made Up Place, Tokyo")
+
+    # Rather than dropping the pin entirely, falls back to the destination's
+    # own center point, clearly flagged as approximate.
+    assert result == (35.68, 139.65, "Approximate location near Tokyo", True)
 
 
 def test_geocode_restricts_search_to_destination_viewbox(monkeypatch):
@@ -287,7 +310,7 @@ def test_geocode_returns_lat_lng_label(monkeypatch):
 
     result = service.geocode("Tokyo")
 
-    assert result == (35.6762, 139.6503, "Tokyo, Japan")
+    assert result == (35.6762, 139.6503, "Tokyo, Japan", False)
 
 
 def test_geocode_returns_none_when_no_results(monkeypatch):

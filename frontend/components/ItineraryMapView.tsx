@@ -12,11 +12,12 @@ export type MapStop = {
   lng: number;
   index: number;
   detail?: string;
+  isApproximate?: boolean;
 };
 
-function numberedIcon(index: number): L.DivIcon {
+function numberedIcon(index: number, isApproximate: boolean): L.DivIcon {
   return L.divIcon({
-    className: "stop-marker",
+    className: isApproximate ? "stop-marker approximate" : "stop-marker",
     html: `<span>${index}</span>`,
     iconSize: [30, 30],
     iconAnchor: [15, 15],
@@ -86,10 +87,15 @@ export default function ItineraryMapView({
         />
       ) : null}
       {stops.map((stop) => (
-        <Marker key={`${stop.label}-${stop.index}`} position={[stop.lat, stop.lng]} icon={numberedIcon(stop.index)}>
+        <Marker
+          key={`${stop.label}-${stop.index}`}
+          position={[stop.lat, stop.lng]}
+          icon={numberedIcon(stop.index, Boolean(stop.isApproximate))}
+        >
           <Popup>
             <strong>{stop.label}</strong>
             {stop.detail ? <div>{stop.detail}</div> : null}
+            {stop.isApproximate ? <div className="approx-note">Approximate area — exact spot not found</div> : null}
           </Popup>
         </Marker>
       ))}

@@ -65,6 +65,7 @@ export type GeocodeResult = {
   lat: number;
   lng: number;
   label: string;
+  is_approximate: boolean;
 };
 
 export type RouteLeg = {

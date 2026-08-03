@@ -10,7 +10,7 @@ USER_AGENT = "TravelSense/1.0 (https://travelsense.app)"
 # Nominatim's usage policy caps unauthenticated use at 1 request/second.
 MIN_INTERVAL_SECONDS = 1.1
 
-GeocodeResult = Tuple[float, float, str]
+GeocodeResult = Tuple[float, float, str, bool]  # (lat, lon, display_name, is_approximate)
 # (min_lon, max_lat, max_lon, min_lat) -- Nominatim's "left,top,right,bottom" viewbox order.
 ViewBox = Tuple[float, float, float, float]
 
@@ -236,7 +236,19 @@ class GeocodingService:
                 return result
 
             day_trip_viewbox = _point_viewbox(anchor, _DAY_TRIP_VENUE_PADDING_DEGREES)
-            return self._find_any_venue_in_city(venue_name, day_trip_viewbox, anchor)
+            result = self._find_any_venue_in_city(venue_name, day_trip_viewbox, anchor)
+            if result is not None:
+                return result
+
+            # Nothing matched by name at all, at any radius -- rather than
+            # dropping the activity from the map entirely, place it at the
+            # destination's own center point so it still shows up roughly
+            # where it should, clearly flagged as approximate (is_approximate)
+            # so the frontend can render it distinctly instead of implying
+            # it's the actual address.
+            lat, lon = anchor
+            near = _destination_hint(query)
+            return (lat, lon, f"Approximate location near {near}", True)
         return None
 
     # Cached per destination string, not per padding, so the day-trip-sized
@@ -309,7 +321,9 @@ class GeocodingService:
             if candidate.get("class") in _NON_VENUE_CLASSES or candidate.get("type") in _NON_VENUE_TYPES:
                 continue
             try:
-                venues.append((float(candidate["lat"]), float(candidate["lon"]), candidate.get("display_name", query)))
+                venues.append(
+                    (float(candidate["lat"]), float(candidate["lon"]), candidate.get("display_name", query), False)
+                )
             except (KeyError, TypeError, ValueError):
                 continue
 
@@ -351,7 +365,7 @@ class GeocodingService:
 
         first = results[0]
         try:
-            return float(first["lat"]), float(first["lon"]), first.get("display_name", query)
+            return float(first["lat"]), float(first["lon"]), first.get("display_name", query), False
         except (KeyError, TypeError, ValueError):
             return None
 

@@ -488,6 +488,20 @@ h3 {
   border: 3px solid #fff;
 }
 
+/* Exact spot not found -- placed at the destination's center as an estimate
+   instead of being dropped, so it needs to read as clearly approximate. */
+.stop-marker.approximate span {
+  background: repeating-linear-gradient(
+    135deg,
+    var(--accent),
+    var(--accent) 4px,
+    var(--accent-dark) 4px,
+    var(--accent-dark) 8px
+  );
+  border-style: dashed;
+  border-color: var(--accent-soft);
+}
+
 .map-canvas .leaflet-popup-content-wrapper {
   border-radius: var(--radius-sm);
   box-shadow: var(--shadow-sm);
@@ -578,6 +592,26 @@ h3 {
   color: var(--muted);
   font-size: 12.5px;
   line-height: 1.4;
+}
+
+.approx-badge {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.approx-note {
+  margin-top: 6px;
+  color: var(--accent-dark);
+  font-size: 12px;
+  font-weight: 600;
 }
 
 /* ---------- Directions ---------- */
